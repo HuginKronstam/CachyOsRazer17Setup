@@ -1,0 +1,35 @@
+# Sensitive configuration files
+# Add any configs that contain passwords, API keys, or personal info
+
+# Example sensitive files (uncomment if you add them):
+# configs/git/.gitconfig          # May contain email/name
+# configs/**/secrets.conf
+# configs/**/*password*
+# configs/**/*token*
+# configs/**/*key*
+
+# KDE wallet/credential files
+configs/kde/*wallet*
+configs/kde/*credential*
+
+# SSH keys
+configs/ssh/
+
+# Browser profiles (may contain passwords/cookies)
+configs/brave/
+configs/firefox/
+
+# Backup files
+*.backup
+*.bak
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
