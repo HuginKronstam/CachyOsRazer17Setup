@@ -1,1 +1,0 @@
-Orcs are ferocious creatures who live only to feel the rush of battle, they are born from spores and are limitless in their desire for bloodshed and violence.
