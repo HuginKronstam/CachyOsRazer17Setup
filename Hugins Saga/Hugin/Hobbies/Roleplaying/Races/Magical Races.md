@@ -1,1 +1,0 @@
-Gnolls: Hyena magically merged with humans to create ferocious humanoids to serve Yeenoghu. A powerful cult of Yeenoghu followers live in Necra and have recently lead a campaign against the capitol. Attacking the food supply is the first move
