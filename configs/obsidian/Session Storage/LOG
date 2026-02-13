@@ -1,2 +1,3 @@
-2026/02/10-10:05:15.776 44cf Creating DB /home/hugin/.config/obsidian/Session Storage since it was missing.
-2026/02/10-10:05:15.803 44cf Reusing MANIFEST /home/hugin/.config/obsidian/Session Storage/MANIFEST-000001
+2026/02/11-18:03:04.861 771 Reusing MANIFEST /home/hugin/.config/obsidian/Session Storage/MANIFEST-000001
+2026/02/11-18:03:04.861 771 Recovering log #3
+2026/02/11-18:03:04.861 771 Reusing old log /home/hugin/.config/obsidian/Session Storage/000003.log 

@@ -1,2 +1,3 @@
-2026/02/10-10:05:16.135 4528 Creating DB /home/hugin/.config/obsidian/IndexedDB/app_obsidian.md_0.indexeddb.leveldb since it was missing.
-2026/02/10-10:05:16.153 4528 Reusing MANIFEST /home/hugin/.config/obsidian/IndexedDB/app_obsidian.md_0.indexeddb.leveldb/MANIFEST-000001
+2026/02/13-21:36:38.711 21e3 Reusing MANIFEST /home/hugin/.config/obsidian/IndexedDB/app_obsidian.md_0.indexeddb.leveldb/MANIFEST-000001
+2026/02/13-21:36:38.711 21e3 Recovering log #3
+2026/02/13-21:36:38.733 21e3 Reusing old log /home/hugin/.config/obsidian/IndexedDB/app_obsidian.md_0.indexeddb.leveldb/000003.log 

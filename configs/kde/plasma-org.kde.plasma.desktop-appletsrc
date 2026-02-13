@@ -82,7 +82,7 @@ immutability=1
 plugin=org.kde.plasma.devicenotifier
 
 [Containments][23][Applets][28][Applets][33][Configuration]
-PreloadWeight=55
+PreloadWeight=60
 
 [Containments][23][Applets][28][Applets][34]
 immutability=1
@@ -137,14 +137,14 @@ immutability=1
 plugin=org.kde.plasma.bluetooth
 
 [Containments][23][Applets][28][Applets][45][Configuration]
-PreloadWeight=42
+PreloadWeight=34
 
 [Containments][23][Applets][28][Applets][46]
 immutability=1
 plugin=org.kde.plasma.mediacontroller
 
 [Containments][23][Applets][28][Applets][46][Configuration]
-PreloadWeight=42
+PreloadWeight=0
 
 [Containments][23][Applets][28][General]
 extraItems=org.kde.kscreen,org.kde.plasma.battery,org.kde.plasma.brightness,org.kde.plasma.cameraindicator,org.kde.plasma.clipboard,org.kde.plasma.devicenotifier,org.kde.plasma.keyboardlayout,org.kde.plasma.manage-inputmethod,org.kde.plasma.mediacontroller,org.kde.plasma.networkmanagement,org.kde.plasma.notifications,org.kde.plasma.volume,org.kde.plasma.bluetooth,org.kde.kdeconnect,org.kde.plasma.keyboardindicator,org.kde.plasma.weather
@@ -170,11 +170,11 @@ Image=/usr/share/wallpapers/cachyos-wallpapers/north.png
 PreviewImage=/usr/share/wallpapers/cachyos-wallpapers/north.png
 SlidePaths=/usr/share/wallpapers/
 
-[Containments][43]
+[Containments][45]
 ItemGeometries-1920x1080=
 ItemGeometries-2560x1440=
 ItemGeometriesHorizontal=
-activityId=0c74d41f-52a7-4153-be94-35963d39defb
+activityId=7f92cf8a-6ffd-4984-a5b7-f5dca3027036
 formfactor=0
 immutability=1
 lastScreen=0
@@ -182,8 +182,19 @@ location=0
 plugin=org.kde.plasma.folder
 wallpaperplugin=org.kde.image
 
-[Containments][44]
-activityId=0c74d41f-52a7-4153-be94-35963d39defb
+[Containments][45][ConfigDialog]
+DialogHeight=630
+DialogWidth=810
+
+[Containments][45][General]
+positions={"2560x1440":["2","23","desktop:/antigravity.desktop","0","0","desktop:/steam.desktop","1","0"]}
+sortMode=-1
+
+[Containments][46]
+ItemGeometries-1920x1080=Applet-47:832,0,448,448,0;
+ItemGeometries-2560x1440=
+ItemGeometriesHorizontal=
+activityId=7f92cf8a-6ffd-4984-a5b7-f5dca3027036
 formfactor=0
 immutability=1
 lastScreen=1
@@ -193,4 +204,4 @@ wallpaperplugin=org.kde.image
 
 [ScreenMapping]
 itemsOnDisabledScreens=
-screenMapping=desktop:/steam.desktop,0,0c74d41f-52a7-4153-be94-35963d39defb
+screenMapping=desktop:/steam.desktop,0,7f92cf8a-6ffd-4984-a5b7-f5dca3027036,desktop:/steam.desktop,0,0c74d41f-52a7-4153-be94-35963d39defb,desktop:/antigravity.desktop,0,7f92cf8a-6ffd-4984-a5b7-f5dca3027036
