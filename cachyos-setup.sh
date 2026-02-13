@@ -363,106 +363,15 @@ EOF
 }
 EOF
 
-    # Configure X11 for NVIDIA Optimus (hybrid graphics)
-    print_info "Configuring X11 for NVIDIA Optimus hybrid graphics..."
-    sudo mkdir -p /etc/X11/xorg.conf.d
-    cat << 'EOF' | sudo tee /etc/X11/xorg.conf.d/20-nvidia-optimus.conf > /dev/null
-Section "ServerLayout"
-    Identifier "layout"
-    Option "AllowNVIDIAGPUScreens"
-EndSection
-
-Section "Device"
-    Identifier "nvidia"
-    Driver "nvidia"
-    BusID "PCI:1:0:0"
-    Option "AllowEmptyInitialConfiguration"
-EndSection
-
-Section "Device"
-    Identifier "intel"
-    Driver "modesetting"
-    BusID "PCI:0:2:0"
-EndSection
-EOF
-
     print_success "X11 installed and set as default session"
     print_info "GLX vendor configured for NVIDIA"
-    print_info "X11 Optimus configuration created (supports both laptop and external displays)"
+    print_info "X11 Optimus configuration will be handled by EnvyControl in the next step"
     print_info "After reboot, you'll automatically login to Plasma X11"
     print_info "To switch to Wayland: select 'Plasma (Wayland)' at login screen"
 fi
 
 ################################################################################
-# STEP 4: Configure NVIDIA as Primary GPU
-################################################################################
-
-if ask_continue "Configure NVIDIA as Primary GPU" \
-"This step configures your system to use NVIDIA as the primary GPU.
-
-We'll create configuration files to:
-  1. Tell the system to use NVIDIA by default for rendering
-  2. Enable kernel modesetting (smoother boot and better Wayland support)
-  3. Preserve video memory allocations (better stability)
-
-Method: We'll set environment variables that make NVIDIA the default
-GPU while keeping Intel available as a fallback (safer than blacklisting).
-
-Files created:
-  - /etc/modprobe.d/nvidia.conf (kernel module options)
-  - /etc/environment.d/nvidia.conf (environment variables)
-
-This is MUCH safer than blacklisting the Intel GPU and won't brick
-your system."; then
-
-    print_header "Step 3: Configuring NVIDIA as Primary"
-
-    # Enable nvidia-drm modesetting and preserve video memory
-    print_info "Creating NVIDIA kernel module configuration..."
-    echo "options nvidia-drm modeset=1" | sudo tee /etc/modprobe.d/nvidia.conf > /dev/null
-    echo "options nvidia NVreg_PreserveVideoMemoryAllocations=1" | sudo tee -a /etc/modprobe.d/nvidia.conf > /dev/null
-
-    # Set NVIDIA as primary GPU via environment variables
-    print_info "Setting NVIDIA as primary GPU..."
-    sudo mkdir -p /etc/environment.d
-    cat << 'EOF' | sudo tee /etc/environment.d/nvidia.conf > /dev/null
-# Make NVIDIA the primary GPU
-__NV_PRIME_RENDER_OFFLOAD=0
-__GLX_VENDOR_LIBRARY_NAME=nvidia
-__VK_LAYER_NV_optimus=NVIDIA_only
-VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json
-EOF
-
-    print_success "NVIDIA configured as primary GPU"
-    print_info "Intel GPU remains available as fallback (safe configuration)"
-fi
-
-################################################################################
-# STEP 5: Update Initramfs
-################################################################################
-
-if ask_continue "Rebuild Initramfs" \
-"This step rebuilds the initial ramdisk (initramfs).
-
-The initramfs is loaded by the bootloader before the main system boots.
-It contains essential drivers and modules needed during early boot.
-
-We need to rebuild it to include:
-  - New NVIDIA driver modules
-  - Updated kernel module options
-
-Without this, your NVIDIA configuration changes won't take effect
-until you manually rebuild it later.
-
-Command: 'mkinitcpio -P' rebuilds initramfs for all installed kernels."; then
-
-    print_header "Step 4: Rebuilding Initramfs"
-    sudo mkinitcpio -P
-    print_success "Initramfs rebuilt with new NVIDIA configuration"
-fi
-
-################################################################################
-# STEP 6: Install YAY (AUR Helper)
+# STEP 4: Install YAY (AUR Helper)
 ################################################################################
 
 if ask_continue "Install YAY AUR Helper" \
@@ -478,10 +387,9 @@ YAY helps you:
 
 We'll install 'yay' from the CachyOS repositories (it's pre-packaged).
 
-Note: Some software in your list (like Bitwarden, VS Code) may come
-from AUR, so we need this before installing your applications."; then
+YAY is needed early since EnvyControl and other tools come from AUR."; then
 
-    print_header "Step 5: Installing YAY"
+    print_header "Step 4: Installing YAY"
 
     if ! command -v yay &> /dev/null; then
         sudo pacman -S --noconfirm yay
@@ -489,6 +397,82 @@ from AUR, so we need this before installing your applications."; then
     else
         print_warning "YAY is already installed, skipping"
     fi
+fi
+
+################################################################################
+# STEP 5: Install EnvyControl and Configure GPU
+################################################################################
+
+if ask_continue "Install EnvyControl and Configure GPU Mode" \
+"This step installs EnvyControl, a tool for managing GPU modes on
+NVIDIA Optimus laptops (Intel + NVIDIA hybrid systems).
+
+EnvyControl replaces our manual X11 GPU configuration and handles
+everything properly, including:
+  - Writing correct X11/xorg configuration
+  - Setting up kernel module options
+  - Managing SDDM display manager integration
+  - Supporting mode switching without bricking the system
+
+GPU Modes available:
+  - integrated: Intel GPU only (maximum battery life)
+  - hybrid:     Both GPUs, NVIDIA used on-demand (balanced)
+  - nvidia:     NVIDIA GPU only (maximum performance)
+
+We'll set 'nvidia' mode with ForceCompositionPipeline enabled.
+ForceCompositionPipeline prevents screen tearing on external monitors.
+
+⚠️  EnvyControl will manage /etc/X11/xorg.conf and related files.
+    Do not manually edit these files after this step.
+
+To switch modes later:
+  sudo envycontrol -s hybrid    # Battery saving
+  sudo envycontrol -s nvidia    # Gaming/external monitor
+  sudo envycontrol -s integrated # Maximum battery
+  (Requires reboot after switching)"; then
+
+    print_header "Step 5: Installing EnvyControl"
+
+    # Install envycontrol from AUR
+    print_info "Installing EnvyControl from AUR..."
+    yay -S --noconfirm envycontrol
+
+    # Enable nvidia-drm modesetting (EnvyControl doesn't manage this)
+    print_info "Configuring NVIDIA kernel module options..."
+    echo "options nvidia-drm modeset=1" | sudo tee /etc/modprobe.d/nvidia.conf > /dev/null
+    echo "options nvidia NVreg_PreserveVideoMemoryAllocations=1" | sudo tee -a /etc/modprobe.d/nvidia.conf > /dev/null
+
+    # Set nvidia mode with ForceCompositionPipeline (prevents screen tearing)
+    print_info "Setting GPU mode to NVIDIA with ForceCompositionPipeline..."
+    sudo envycontrol -s nvidia --force-comp --dm sddm
+
+    print_success "EnvyControl installed and GPU set to NVIDIA mode"
+    print_info "ForceCompositionPipeline enabled (prevents screen tearing)"
+    print_info "To switch modes: sudo envycontrol -s [integrated|hybrid|nvidia]"
+fi
+
+################################################################################
+# STEP 6: Update Initramfs
+################################################################################
+
+if ask_continue "Rebuild Initramfs" \
+"This step rebuilds the initial ramdisk (initramfs).
+
+The initramfs is loaded by the bootloader before the main system boots.
+It contains essential drivers and modules needed during early boot.
+
+We need to rebuild it to include:
+  - New NVIDIA driver modules
+  - Updated kernel module options set by EnvyControl
+
+Without this, your GPU configuration changes won't take effect
+until you manually rebuild it later.
+
+Command: 'mkinitcpio -P' rebuilds initramfs for all installed kernels."; then
+
+    print_header "Step 6: Rebuilding Initramfs"
+    sudo mkinitcpio -P
+    print_success "Initramfs rebuilt with new NVIDIA configuration"
 fi
 
 ################################################################################
@@ -529,17 +513,27 @@ if ask_continue "Install Applications" \
   - obsidian: Note-taking and knowledge base (from AUR)
   - wezterm: GPU-accelerated terminal emulator (from AUR)
   - ttf-blex-nerd: BlexMono Nerd Font (for WezTerm)
+  - antigravity: Google's agentic AI IDE (from AUR)
+  - razer-control-revived: Razer hardware control (fan, RGB, battery, power)
+  - razer-control KDE widget: Panel widget for quick Razer hardware access
 
-Some packages are from official repos, others from AUR.
-AUR packages take longer to install as they're compiled locally.
+Razer Control Revived provides:
+  - Fan speed control
+  - Keyboard RGB lighting
+  - Battery charge limit (extends battery lifespan)
+  - Real-time CPU/GPU power monitoring
+  - KDE Plasma widget for panel integration
 
-This may take 10-20 minutes depending on your system and internet speed."; then
+Note: Antigravity requires a Google account to sign in after install.
+      It may occasionally show 'version outdated' - run 'yay -Syu' to update.
+
+This may take 15-25 minutes depending on your system and internet speed."; then
 
     print_header "Step 8: Installing Applications"
 
     # Define packages
     OFFICIAL_PACKAGES="discord steam vlc"
-    AUR_PACKAGES="brave-bin bitwarden visual-studio-code-bin obsidian wezterm ttf-blex-nerd"
+    AUR_PACKAGES="brave-bin bitwarden visual-studio-code-bin obsidian wezterm ttf-blex-nerd antigravity"
 
     # Install official packages
     print_info "Installing packages from official repositories..."
@@ -549,7 +543,46 @@ This may take 10-20 minutes depending on your system and internet speed."; then
     print_info "Installing packages from AUR (this may take a while)..."
     yay -S --noconfirm $AUR_PACKAGES
 
+    # Install Razer Control Revived from GitHub releases tarball
+    print_info "Installing Razer Control Revived..."
+    RAZER_VERSION="0.2.8"
+    RAZER_TARBALL="razer-control-0.2.7-x86_64.tar.gz"
+    RAZER_URL="https://github.com/encomjp/razer-control-revived/releases/download/v${RAZER_VERSION}/${RAZER_TARBALL}"
+    RAZER_TMP="/tmp/razer-control"
+
+    mkdir -p "$RAZER_TMP"
+    print_info "Downloading Razer Control Revived v${RAZER_VERSION}..."
+    curl -L "$RAZER_URL" -o "$RAZER_TMP/$RAZER_TARBALL"
+
+    print_info "Extracting and installing daemon..."
+    tar xzf "$RAZER_TMP/$RAZER_TARBALL" -C "$RAZER_TMP"
+    cd "$RAZER_TMP/razer-control-0.2.7-x86_64"
+    sudo ./install.sh
+    cd - > /dev/null
+
+    # Install KDE Plasma widget from source repo
+    print_info "Installing Razer Control KDE Plasma widget..."
+    RAZER_REPO_TMP="/tmp/razer-control-repo"
+    git clone https://github.com/encomjp/razer-control-revived.git "$RAZER_REPO_TMP"
+    cd "$RAZER_REPO_TMP/razer_control_gui/kde-widget"
+    ./install-plasmoid.sh
+    cd - > /dev/null
+
+    # Enable razercontrol daemon
+    print_info "Enabling Razer Control daemon..."
+    systemctl --user enable --now razercontrol.service
+
+    # Add udev rule for CPU power reading
+    print_info "Adding udev rule for CPU power monitoring..."
+    echo 'ACTION=="add", SUBSYSTEM=="powercap", KERNEL=="intel-rapl:0", RUN+="/bin/chmod a+r /sys/class/powercap/intel-rapl:0/energy_uj"' \
+        | sudo tee /etc/udev/rules.d/99-rapl-readable.rules > /dev/null
+    sudo udevadm control --reload-rules && sudo udevadm trigger
+
+    # Cleanup
+    rm -rf "$RAZER_TMP" "$RAZER_REPO_TMP"
+
     print_success "All applications installed successfully"
+    print_info "Razer Control widget: Right-click panel → Add Widgets → Search 'Razer Control'"
 fi
 
 ################################################################################
@@ -764,15 +797,34 @@ echo "  ✓ System updated to latest packages"
 echo "  ✓ NVIDIA drivers installed/verified"
 echo "  ✓ X11 installed and set as default display server"
 echo "  ✓ GLX vendor configured for NVIDIA"
-echo "  ✓ X11 Optimus configured (hybrid Intel+NVIDIA graphics)"
-echo "  ✓ NVIDIA configured as primary GPU"
+echo "  ✓ EnvyControl installed - GPU set to NVIDIA mode with ForceCompositionPipeline"
 echo "  ✓ Initramfs rebuilt with new configuration"
 echo "  ✓ YAY AUR helper installed"
 echo "  ✓ Gaming meta package installed"
-echo "  ✓ Applications installed (Discord, Brave, Bitwarden, Steam, VLC, VS Code, Obsidian, WezTerm)"
+echo "  ✓ Applications installed (Discord, Brave, Bitwarden, Steam, VLC, VS Code, Obsidian, WezTerm, Antigravity)"
+echo "  ✓ Razer Control Revived installed (fan, RGB, battery, power monitoring)"
+echo "  ✓ Razer Control KDE widget installed"
 echo "  ✓ Unwanted software removed (Alacritty, Firefox)"
 echo "  ✓ NVIDIA power management services enabled"
 echo "  ✓ Custom configurations deployed"
+echo ""
+
+print_warning "IMPORTANT: You must REBOOT for all changes to take effect!"
+echo ""
+echo "After reboot:"
+echo "  1. System will use X11 with NVIDIA GPU exclusively"
+echo "  2. ForceCompositionPipeline active (no screen tearing)"
+echo "  3. Both laptop and external displays will work correctly"
+echo "  4. Razer Control widget: Right-click panel → Add Widgets → Search 'Razer Control'"
+echo "  5. Antigravity: Launch from app menu, sign in with Google account"
+echo ""
+echo "Useful commands:"
+echo "  envycontrol --query              # Check current GPU mode"
+echo "  sudo envycontrol -s hybrid       # Switch to hybrid (battery saving)"
+echo "  sudo envycontrol -s nvidia       # Switch back to NVIDIA only"
+echo "  sudo envycontrol -s integrated   # Intel only (maximum battery)"
+echo "  nvidia-smi                       # Monitor GPU usage"
+echo "  yay -Syu                         # Update all packages including Antigravity"
 echo ""
 
 print_warning "IMPORTANT: You must REBOOT for all changes to take effect!"
