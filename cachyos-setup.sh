@@ -573,12 +573,10 @@ This may take 15-25 minutes depending on your system and internet speed."; then
     print_info "Extracting and installing daemon..."
     tar xzf "$RAZER_TMP/$RAZER_TARBALL" -C "$RAZER_TMP"
 
-    # Run install.sh in a subshell as normal user
-    # Unset sudo env vars so install.sh doesn't think it's running as root
+    # Run install.sh as normal user - it calls sudo internally where needed
     (
         cd "$RAZER_TMP/razer-control-0.2.7-x86_64" || exit 1
-        unset SUDO_USER SUDO_UID SUDO_GID
-        sudo ./install.sh
+        bash ./install.sh
     ) || print_warning "Razer Control daemon install had issues - may need manual install"
 
     # Install KDE Plasma widget from source repo
@@ -763,6 +761,7 @@ Config files must be in ./configs/ directory relative to this script."; then
         print_success "WezTerm config deployed"
     else
         print_warning "WezTerm config not found at $SCRIPT_DIR/configs/wezterm/wezterm.lua, skipping"
+        print_info "To fix: copy your wezterm.lua to configs/wezterm/ and commit to git"
     fi
 
     # Deploy KDE configs

@@ -126,10 +126,10 @@ handle_wrong_session() {
 
 verify_session() {
     print_section "Session Verification"
-    
+
     local session_type="${XDG_SESSION_TYPE:-unknown}"
     info "Session type: $session_type"
-    
+
     if [ "$session_type" = "x11" ]; then
         pass "Running in X11 session"
     else
@@ -262,12 +262,14 @@ verify_services() {
 configure_kde_defaults() {
     print_section "KDE Default Applications"
 
-    # Set WezTerm as default terminal
+    # Set WezTerm as default terminal (KDE6 uses kwriteconfig6)
     if command -v wezterm &>/dev/null; then
-        kwriteconfig5 --file kdeglobals --group General \
+        kwriteconfig6 --file kdeglobals --group General \
             --key TerminalApplication wezterm 2>/dev/null \
-            && pass "WezTerm set as default terminal" \
-            || warn "Could not set WezTerm as default terminal"
+        && kwriteconfig6 --file kdeglobals --group General \
+            --key TerminalService wezterm.desktop 2>/dev/null \
+        && pass "WezTerm set as default terminal" \
+        || warn "Could not set WezTerm as default terminal"
     else
         warn "WezTerm not found, skipping terminal default"
     fi
@@ -311,22 +313,25 @@ run_gpu_stress_test() {
     fi
 
     if command -v glmark2 &>/dev/null; then
-        info "Running GPU benchmark (30 seconds)..."
+        info "Running GPU benchmark (this takes about 20 seconds)..."
         info "Watch for smooth rendering and high FPS scores"
         echo ""
 
-        # Run glmark2 with a subset of tests for speed
+        local output
+        output=$(glmark2 2>&1)
         local score
-        score=$(glmark2 --run-forever=false 2>&1 | tail -5)
-        
-        if echo "$score" | grep -q "Score"; then
-            pass "GPU benchmark completed"
-            echo "$score" | while read -r line; do
+        score=$(echo "$output" | grep -o "glmark2 Score: [0-9]*" | grep -o "[0-9]*")
+
+        if [ -n "$score" ]; then
+            pass "GPU benchmark completed - Score: $score"
+            echo "  [SCORE] glmark2: $score" >> "$LOG_FILE"
+            # Show individual test FPS for context
+            echo "$output" | grep "FPS:" | while read -r line; do
                 info "  $line"
             done
         else
-            warn "GPU benchmark completed but score not detected"
-            info "  Check output above for any rendering errors"
+            warn "GPU benchmark completed but score could not be parsed"
+            info "  Last output: $(echo "$output" | tail -3)"
         fi
     fi
 }
@@ -352,6 +357,15 @@ print_summary() {
         echo -e "${YELLOW}⚠ Setup complete with some warnings. Check the log for details.${NC}"
     else
         echo -e "${RED}✗ Some checks failed. Review the log and fix issues.${NC}"
+    fi
+
+    # Show GPU benchmark score if available
+    local bench_score
+    bench_score=$(grep "\[SCORE\] glmark2:" "$LOG_FILE" 2>/dev/null | grep -o "[0-9]*$")
+    if [ -n "$bench_score" ]; then
+        echo ""
+        echo -e "  ${CYAN}GPU Benchmark Score: ${GREEN}$bench_score${NC}"
+        echo -e "  ${BLUE}(RTX 3080 Mobile typical range: 10,000 - 15,000)${NC}"
     fi
 
     echo ""
