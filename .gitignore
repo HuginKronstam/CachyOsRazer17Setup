@@ -1,3 +1,7 @@
+# Run logs (auto-generated, not for version control)
+last-run.log
+post-reboot.log
+
 # Sensitive configuration files
 # Add any configs that contain passwords, API keys, or personal info
 

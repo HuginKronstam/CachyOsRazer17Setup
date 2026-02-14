@@ -3,10 +3,11 @@
 ################################################################################
 # CachyOS Post-Installation Setup Script
 # For: Razer Blade 17 (Intel + NVIDIA RTX 3080 Mobile)
-# DE: KDE Plasma (Wayland preferred, X11 fallback)
+# DE: KDE Plasma (X11)
 ################################################################################
 
-set -e  # Exit on error
+# Don't exit on errors - handle them explicitly per step
+set -uo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -18,6 +19,12 @@ NC='\033[0m' # No Color
 # Interactive mode flag
 INTERACTIVE=false
 
+# Script directory (so configs are found regardless of where script is run from)
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Log file (gitignored, records warnings/errors from last run)
+LOG_FILE="$SCRIPT_DIR/last-run.log"
+
 ################################################################################
 # Helper Functions
 ################################################################################
@@ -26,22 +33,28 @@ print_header() {
     echo -e "\n${BLUE}================================${NC}"
     echo -e "${BLUE}$1${NC}"
     echo -e "${BLUE}================================${NC}\n"
+    echo "" >> "$LOG_FILE"
+    echo "=== $1 ===" >> "$LOG_FILE"
 }
 
 print_success() {
     echo -e "${GREEN}✓ $1${NC}"
+    echo "[OK] $1" >> "$LOG_FILE"
 }
 
 print_warning() {
     echo -e "${YELLOW}⚠ $1${NC}"
+    echo "[WARN] $1" >> "$LOG_FILE"
 }
 
 print_error() {
     echo -e "${RED}✗ $1${NC}"
+    echo "[ERROR] $1" >> "$LOG_FILE"
 }
 
 print_info() {
     echo -e "${BLUE}ℹ $1${NC}"
+    echo "[INFO] $1" >> "$LOG_FILE"
 }
 
 ask_continue() {
@@ -74,7 +87,6 @@ ask_continue() {
 backup_configs() {
     print_header "Backing Up System Configurations"
 
-    SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
     BACKUP_DIR="$SCRIPT_DIR/configs"
 
     print_info "Backup location: $BACKUP_DIR"
@@ -171,6 +183,10 @@ if [ "$EUID" -eq 0 ]; then
     echo "The script will ask for your password when needed."
     exit 1
 fi
+
+# Initialize log file
+echo "=== CachyOS Setup Log - $(date) ===" > "$LOG_FILE"
+echo "Script directory: $SCRIPT_DIR" >> "$LOG_FILE"
 
 # Main menu loop
 while true; do
@@ -512,7 +528,7 @@ if ask_continue "Install Applications" \
   - visual-studio-code-bin: Code editor (from AUR)
   - obsidian: Note-taking and knowledge base (from AUR)
   - wezterm: GPU-accelerated terminal emulator (from AUR)
-  - ttf-blex-nerd: BlexMono Nerd Font (for WezTerm)
+  - ttf-ibmplex-mono-nerd: BlexMono Nerd Font (for WezTerm, from official repo)
   - antigravity: Google's agentic AI IDE (from AUR)
   - razer-control-revived: Razer hardware control (fan, RGB, battery, power)
   - razer-control KDE widget: Panel widget for quick Razer hardware access
@@ -532,8 +548,8 @@ This may take 15-25 minutes depending on your system and internet speed."; then
     print_header "Step 8: Installing Applications"
 
     # Define packages
-    OFFICIAL_PACKAGES="discord steam vlc"
-    AUR_PACKAGES="brave-bin bitwarden visual-studio-code-bin obsidian wezterm ttf-blex-nerd antigravity"
+    OFFICIAL_PACKAGES="discord steam vlc ttf-ibmplex-mono-nerd"
+    AUR_PACKAGES="brave-bin bitwarden visual-studio-code-bin obsidian wezterm antigravity"
 
     # Install official packages
     print_info "Installing packages from official repositories..."
@@ -556,21 +572,35 @@ This may take 15-25 minutes depending on your system and internet speed."; then
 
     print_info "Extracting and installing daemon..."
     tar xzf "$RAZER_TMP/$RAZER_TARBALL" -C "$RAZER_TMP"
-    cd "$RAZER_TMP/razer-control-0.2.7-x86_64"
-    sudo ./install.sh
-    cd - > /dev/null
+
+    # Run install.sh in a subshell as normal user
+    # Unset sudo env vars so install.sh doesn't think it's running as root
+    (
+        cd "$RAZER_TMP/razer-control-0.2.7-x86_64" || exit 1
+        unset SUDO_USER SUDO_UID SUDO_GID
+        sudo ./install.sh
+    ) || print_warning "Razer Control daemon install had issues - may need manual install"
 
     # Install KDE Plasma widget from source repo
     print_info "Installing Razer Control KDE Plasma widget..."
     RAZER_REPO_TMP="/tmp/razer-control-repo"
-    git clone https://github.com/encomjp/razer-control-revived.git "$RAZER_REPO_TMP"
-    cd "$RAZER_REPO_TMP/razer_control_gui/kde-widget"
-    ./install-plasmoid.sh
-    cd - > /dev/null
 
-    # Enable razercontrol daemon
-    print_info "Enabling Razer Control daemon..."
-    systemctl --user enable --now razercontrol.service
+    # Remove any previous clone attempt
+    rm -rf "$RAZER_REPO_TMP"
+    git clone https://github.com/encomjp/razer-control-revived.git "$RAZER_REPO_TMP"
+
+    # Run plasmoid install in a subshell
+    (
+        cd "$RAZER_REPO_TMP/razer_control_gui/kde-widget" || exit 1
+        chmod +x install-plasmoid.sh
+        ./install-plasmoid.sh
+    ) || print_warning "Razer Control widget install had issues - may need manual install"
+
+    # Note: razercontrol.service is enabled by install.sh automatically
+    # If it fails before reboot, it will be available after reboot
+    print_info "Razer Control daemon installed - will be active after reboot"
+    systemctl --user enable razercontrol.service 2>/dev/null \
+        || print_info "Razer service will activate on next login (normal before reboot)"
 
     # Add udev rule for CPU power reading
     print_info "Adding udev rule for CPU power monitoring..."
@@ -726,17 +756,17 @@ Config files must be in ./configs/ directory relative to this script."; then
     print_header "Step 12: Deploying Configurations"
 
     # Deploy WezTerm config
-    if [ -f "./configs/wezterm/wezterm.lua" ]; then
+    if [ -f "$SCRIPT_DIR/configs/wezterm/wezterm.lua" ]; then
         print_info "Deploying WezTerm configuration..."
         mkdir -p ~/.config/wezterm
-        cp ./configs/wezterm/wezterm.lua ~/.config/wezterm/
+        cp "$SCRIPT_DIR/configs/wezterm/wezterm.lua" ~/.config/wezterm/
         print_success "WezTerm config deployed"
     else
-        print_warning "WezTerm config not found, skipping"
+        print_warning "WezTerm config not found at $SCRIPT_DIR/configs/wezterm/wezterm.lua, skipping"
     fi
 
     # Deploy KDE configs
-    if [ -d "./configs/kde" ]; then
+    if [ -d "$SCRIPT_DIR/configs/kde" ]; then
         print_info "Deploying KDE configurations..."
 
         KDE_CONFIGS=(
@@ -752,30 +782,30 @@ Config files must be in ./configs/ directory relative to this script."; then
         )
 
         for config_file in "${KDE_CONFIGS[@]}"; do
-            if [ -f "./configs/kde/$config_file" ]; then
-                cp "./configs/kde/$config_file" ~/.config/
+            if [ -f "$SCRIPT_DIR/configs/kde/$config_file" ]; then
+                cp "$SCRIPT_DIR/configs/kde/$config_file" ~/.config/
                 print_success "Deployed $config_file"
             fi
         done
     else
-        print_info "No KDE configs found, skipping"
+        print_info "No KDE configs found at $SCRIPT_DIR/configs/kde, skipping"
     fi
 
     # Deploy Obsidian configs
-    if [ -d "./configs/obsidian" ]; then
+    if [ -d "$SCRIPT_DIR/configs/obsidian" ]; then
         print_info "Deploying Obsidian configuration..."
         mkdir -p ~/.config/obsidian
-        cp -r ./configs/obsidian/* ~/.config/obsidian/ 2>/dev/null || true
+        cp -r "$SCRIPT_DIR/configs/obsidian/." ~/.config/obsidian/ 2>/dev/null || true
         print_success "Obsidian config deployed"
     else
         print_info "No Obsidian config found, skipping"
     fi
 
     # Deploy VS Code settings
-    if [ -f "./configs/vscode/settings.json" ]; then
+    if [ -f "$SCRIPT_DIR/configs/vscode/settings.json" ]; then
         print_info "Deploying VS Code settings..."
         mkdir -p ~/.config/Code/User
-        cp ./configs/vscode/settings.json ~/.config/Code/User/
+        cp "$SCRIPT_DIR/configs/vscode/settings.json" ~/.config/Code/User/
         print_success "VS Code settings deployed"
     else
         print_info "No VS Code settings found, skipping"
@@ -809,41 +839,34 @@ echo "  ✓ NVIDIA power management services enabled"
 echo "  ✓ Custom configurations deployed"
 echo ""
 
+# Register post-reboot script to run on first login
+print_info "Registering post-reboot verification script..."
+AUTOSTART_DIR="$HOME/.config/autostart"
+mkdir -p "$AUTOSTART_DIR"
+
+# Ensure post-reboot script is executable
+chmod +x "$SCRIPT_DIR/post-reboot.sh"
+
+cat > "$AUTOSTART_DIR/cachyos-post-reboot.desktop" << EOF
+[Desktop Entry]
+Type=Application
+Name=CachyOS Post-Reboot Setup
+Exec=wezterm start -- $SCRIPT_DIR/post-reboot.sh
+Terminal=false
+X-KDE-autostart-after=panel
+EOF
+print_success "Post-reboot script registered - will run automatically after next login"
+
 print_warning "IMPORTANT: You must REBOOT for all changes to take effect!"
+echo "The post-reboot script will run automatically on your first login."
 echo ""
-echo "After reboot:"
-echo "  1. System will use X11 with NVIDIA GPU exclusively"
-echo "  2. ForceCompositionPipeline active (no screen tearing)"
-echo "  3. Both laptop and external displays will work correctly"
-echo "  4. Razer Control widget: Right-click panel → Add Widgets → Search 'Razer Control'"
-echo "  5. Antigravity: Launch from app menu, sign in with Google account"
-echo ""
-echo "Useful commands:"
+echo "Useful commands after reboot:"
 echo "  envycontrol --query              # Check current GPU mode"
 echo "  sudo envycontrol -s hybrid       # Switch to hybrid (battery saving)"
 echo "  sudo envycontrol -s nvidia       # Switch back to NVIDIA only"
 echo "  sudo envycontrol -s integrated   # Intel only (maximum battery)"
 echo "  nvidia-smi                       # Monitor GPU usage"
-echo "  yay -Syu                         # Update all packages including Antigravity"
-echo ""
-
-print_warning "IMPORTANT: You must REBOOT for all changes to take effect!"
-echo ""
-echo "After reboot:"
-echo "  1. System will automatically use X11 session (better for gaming)"
-echo "  2. NVIDIA GPU will be used for rendering (no black boxes)"
-echo "  3. Both laptop and external displays will work correctly"
-echo "  4. Multi-monitor setup should work smoothly without frame caps"
-echo "  5. Gaming performance will be optimal on both laptop screen and external monitor"
-echo "  6. To switch to Wayland (if you want to test):"
-echo "     - Log out → Select 'Plasma (Wayland)' at login screen"
-echo ""
-
-print_info "Tips:"
-echo "  - Use 'nvidia-settings' to configure display settings"
-echo "  - Use 'nvidia-smi' to monitor GPU usage"
-echo "  - Steam should automatically detect and use your NVIDIA GPU"
-echo "  - X11 handles multi-monitor gaming much better than Wayland currently"
+echo "  yay -Syu                         # Update all packages"
 echo ""
 
 read -p "Would you like to reboot now? [y/N] " -n 1 -r
