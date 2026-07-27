@@ -112,18 +112,21 @@ immutability=1
 plugin=org.kde.plasma.battery
 
 [Containments][23][Applets][28][Applets][40][Configuration]
-PreloadWeight=34
+PreloadWeight=26
 
 [Containments][23][Applets][28][Applets][41]
 immutability=1
 plugin=org.kde.plasma.brightness
 
 [Containments][23][Applets][28][Applets][41][Configuration]
-PreloadWeight=34
+PreloadWeight=26
 
 [Containments][23][Applets][28][Applets][42]
 immutability=1
 plugin=org.kde.plasma.networkmanagement
+
+[Containments][23][Applets][28][Applets][42][Configuration]
+PreloadWeight=55
 
 [Containments][23][Applets][28][Applets][43]
 immutability=1
@@ -170,11 +173,11 @@ Image=/usr/share/wallpapers/cachyos-wallpapers/north.png
 PreviewImage=/usr/share/wallpapers/cachyos-wallpapers/north.png
 SlidePaths=/usr/share/wallpapers/
 
-[Containments][45]
+[Containments][47]
 ItemGeometries-1920x1080=
 ItemGeometries-2560x1440=
 ItemGeometriesHorizontal=
-activityId=7f92cf8a-6ffd-4984-a5b7-f5dca3027036
+activityId=38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb
 formfactor=0
 immutability=1
 lastScreen=0
@@ -182,19 +185,8 @@ location=0
 plugin=org.kde.plasma.folder
 wallpaperplugin=org.kde.image
 
-[Containments][45][ConfigDialog]
-DialogHeight=630
-DialogWidth=810
-
-[Containments][45][General]
-positions={"2560x1440":["2","23","desktop:/antigravity.desktop","0","0","desktop:/steam.desktop","1","0"]}
-sortMode=-1
-
-[Containments][46]
-ItemGeometries-1920x1080=Applet-47:832,0,448,448,0;
-ItemGeometries-2560x1440=
-ItemGeometriesHorizontal=
-activityId=7f92cf8a-6ffd-4984-a5b7-f5dca3027036
+[Containments][48]
+activityId=38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb
 formfactor=0
 immutability=1
 lastScreen=1
@@ -204,4 +196,4 @@ wallpaperplugin=org.kde.image
 
 [ScreenMapping]
 itemsOnDisabledScreens=
-screenMapping=desktop:/steam.desktop,0,7f92cf8a-6ffd-4984-a5b7-f5dca3027036,desktop:/steam.desktop,0,0c74d41f-52a7-4153-be94-35963d39defb,desktop:/antigravity.desktop,0,7f92cf8a-6ffd-4984-a5b7-f5dca3027036
+screenMapping=desktop:/steam.desktop,0,7f92cf8a-6ffd-4984-a5b7-f5dca3027036,desktop:/antigravity.desktop,0,7f92cf8a-6ffd-4984-a5b7-f5dca3027036,desktop:/steam.desktop,0,0c74d41f-52a7-4153-be94-35963d39defb

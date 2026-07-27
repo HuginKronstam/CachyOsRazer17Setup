@@ -25,6 +25,15 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 # Log file (gitignored, records warnings/errors from last run)
 LOG_FILE="$SCRIPT_DIR/last-run.log"
 
+# Local Obsidian vault location, used by the Proton Drive backup/restore
+# menu options. Edit this if your vault moves or is renamed.
+OBSIDIAN_VAULT_DIR="$HOME/Documents/Obsidian/Hugins Saga"
+
+# Marker file (gitignored) whose mtime is the timestamp of the last
+# successful Proton Drive backup. Used to find changed files for
+# incremental backups instead of re-uploading the whole vault every time.
+PROTON_BACKUP_MARKER="$SCRIPT_DIR/.proton-obsidian-backup-marker"
+
 ################################################################################
 # Helper Functions
 ################################################################################
@@ -93,7 +102,7 @@ backup_configs() {
     echo ""
 
     # Create backup directories
-    mkdir -p "$BACKUP_DIR"/{wezterm,kde,obsidian,vscode}
+    mkdir -p "$BACKUP_DIR"/{wezterm,kde,obsidian,vscode,vivaldi}
 
     # Backup WezTerm
     if [ -f ~/.config/wezterm/wezterm.lua ]; then
@@ -145,6 +154,22 @@ backup_configs() {
         print_warning "VS Code settings not found, skipping"
     fi
 
+    # Backup Vivaldi (bookmarks, preferences, extensions state, etc. -
+    # excludes cache, cookies, and saved logins)
+    if [ -d ~/.config/vivaldi ]; then
+        print_info "Backing up Vivaldi config (excluding cache, cookies, login data)..."
+        command -v rsync &>/dev/null || sudo pacman -S --noconfirm --needed rsync
+        rsync -a \
+            --exclude='*[Cc]ache*' \
+            --exclude='*Cookies*' \
+            --exclude='*Login Data*' \
+            --exclude='Singleton*' \
+            ~/.config/vivaldi/ "$BACKUP_DIR/vivaldi/" 2>/dev/null || true
+        print_success "Vivaldi config backed up"
+    else
+        print_warning "Vivaldi config not found, skipping"
+    fi
+
     echo ""
     print_success "Backup completed!"
     print_info "Configs saved to: $BACKUP_DIR"
@@ -155,6 +180,168 @@ backup_configs() {
     echo "  git commit -m \"Update configs from $(date +%Y-%m-%d)\""
     echo "  git push"
     echo ""
+}
+
+################################################################################
+# Proton Drive - Obsidian Vault Backup/Restore
+################################################################################
+# Uploads/downloads the vault as a whole folder, so the remote path mirrors
+# the local folder name: OBSIDIAN_VAULT_DIR uploads into /my-files, and
+# comes back down from /my-files/<vault folder name>.
+
+backup_obsidian_to_proton() {
+    print_header "Backing Up Obsidian Vault to Proton Drive"
+
+    if ! command -v proton-drive &>/dev/null; then
+        print_error "proton-drive CLI not found"
+        print_info "Install it via Setup System, or manually: yay -S proton-drive-cli-bin"
+        return 1
+    fi
+
+    if [ ! -d "$OBSIDIAN_VAULT_DIR" ]; then
+        print_error "Obsidian vault not found at: $OBSIDIAN_VAULT_DIR"
+        print_info "Edit OBSIDIAN_VAULT_DIR near the top of this script if your vault has moved"
+        return 1
+    fi
+
+    local vault_name start_time
+    vault_name="$(basename "$OBSIDIAN_VAULT_DIR")"
+    start_time=$(date +%s.%N)
+
+    print_info "Local vault:  $OBSIDIAN_VAULT_DIR"
+    print_info "Remote path:  /my-files/$vault_name"
+
+    if [ ! -f "$PROTON_BACKUP_MARKER" ]; then
+        # First backup ever - no marker to diff against, so upload
+        # everything once. This also creates the remote folder structure
+        # that later incremental runs upload individual files into.
+        print_info "No previous backup found - uploading the full vault (first run only)"
+        echo ""
+        print_warning "Files that differ will be REPLACED on Proton Drive with your local versions."
+        read -p "Continue with upload? [y/N] " confirm
+        case $confirm in
+            [Yy]*) ;;
+            *) print_info "Backup cancelled"; return 0 ;;
+        esac
+
+        if proton-drive filesystem upload --file-conflict-strategy replace \
+            --folder-conflict-strategy merge --skip-thumbnails \
+            "$OBSIDIAN_VAULT_DIR" /my-files; then
+            touch -d "@$start_time" "$PROTON_BACKUP_MARKER"
+            print_success "Obsidian vault backed up to Proton Drive (/my-files/$vault_name)"
+        else
+            print_error "Backup failed - if this is the first run, sign in first: proton-drive auth login"
+            return 1
+        fi
+        return 0
+    fi
+
+    # Incremental run - only upload files modified since the last
+    # successful backup, instead of re-uploading/replacing everything.
+    local changed_files=()
+    while IFS= read -r -d '' file; do
+        changed_files+=("$file")
+    done < <(find "$OBSIDIAN_VAULT_DIR" -type f -newer "$PROTON_BACKUP_MARKER" -print0)
+
+    if [ ${#changed_files[@]} -eq 0 ]; then
+        print_success "Nothing changed since the last backup - skipping upload"
+        return 0
+    fi
+
+    local file rel_path
+    print_info "${#changed_files[@]} file(s) changed since the last backup:"
+    for file in "${changed_files[@]}"; do
+        rel_path="${file#"$OBSIDIAN_VAULT_DIR"/}"
+        echo "    $rel_path"
+    done
+    echo ""
+    print_warning "These files will be REPLACED on Proton Drive with your local versions."
+    read -p "Continue with upload? [y/N] " confirm
+    case $confirm in
+        [Yy]*) ;;
+        *) print_info "Backup cancelled"; return 0 ;;
+    esac
+
+    local fail=0 rel_dir remote_parent
+    for file in "${changed_files[@]}"; do
+        rel_path="${file#"$OBSIDIAN_VAULT_DIR"/}"
+        rel_dir="$(dirname "$rel_path")"
+        if [ "$rel_dir" = "." ]; then
+            remote_parent="/my-files/$vault_name"
+        else
+            remote_parent="/my-files/$vault_name/$rel_dir"
+        fi
+
+        if proton-drive filesystem upload --file-conflict-strategy replace \
+            --skip-thumbnails "$file" "$remote_parent"; then
+            continue
+        fi
+
+        if [ "$rel_dir" != "." ]; then
+            # Single-file upload failed - most likely the parent folder
+            # doesn't exist on Proton Drive yet (e.g. a brand new
+            # top-level folder). Retry by uploading the whole parent
+            # folder, which recursively creates any missing structure.
+            print_warning "Retrying as a folder upload: $rel_dir"
+            local grandparent_dir grandparent_remote
+            grandparent_dir="$(dirname "$rel_dir")"
+            if [ "$grandparent_dir" = "." ]; then
+                grandparent_remote="/my-files/$vault_name"
+            else
+                grandparent_remote="/my-files/$vault_name/$grandparent_dir"
+            fi
+            if proton-drive filesystem upload --file-conflict-strategy replace \
+                --folder-conflict-strategy merge --skip-thumbnails \
+                "$OBSIDIAN_VAULT_DIR/$rel_dir" "$grandparent_remote"; then
+                continue
+            fi
+        fi
+
+        print_error "Failed to upload: $rel_path"
+        fail=1
+    done
+
+    if [ "$fail" -eq 0 ]; then
+        touch -d "@$start_time" "$PROTON_BACKUP_MARKER"
+        print_success "Uploaded ${#changed_files[@]} changed file(s) to Proton Drive"
+    else
+        print_warning "Some files failed to upload - marker not updated, they'll be retried next time"
+    fi
+}
+
+restore_obsidian_from_proton() {
+    print_header "Restoring Obsidian Vault from Proton Drive"
+
+    if ! command -v proton-drive &>/dev/null; then
+        print_error "proton-drive CLI not found"
+        print_info "Install it via Setup System, or manually: yay -S proton-drive-cli-bin"
+        return 1
+    fi
+
+    local vault_name vault_parent
+    vault_name="$(basename "$OBSIDIAN_VAULT_DIR")"
+    vault_parent="$(dirname "$OBSIDIAN_VAULT_DIR")"
+
+    print_info "Remote path:  /my-files/$vault_name"
+    print_info "Local vault:  $OBSIDIAN_VAULT_DIR"
+    echo ""
+    print_warning "Local files that differ will be REPLACED with the Proton Drive versions."
+    print_warning "Any local changes not yet backed up will be lost."
+    read -p "Continue with download? [y/N] " confirm
+    case $confirm in
+        [Yy]*) ;;
+        *) print_info "Restore cancelled"; return 0 ;;
+    esac
+
+    mkdir -p "$vault_parent"
+
+    if proton-drive filesystem download --file-conflict-strategy replace \
+        --folder-conflict-strategy merge \
+        "/my-files/$vault_name" "$vault_parent"; then
+        print_success "Obsidian vault restored from Proton Drive to $OBSIDIAN_VAULT_DIR"
+    else
+        print_error "Restore failed - if this is the first run, sign in first: proton-drive auth login"
+    fi
 }
 
 ################################################################################
@@ -169,7 +356,9 @@ show_menu() {
     echo ""
     echo "1) Setup System"
     echo "2) Backup Configs"
-    echo "3) Exit"
+    echo "3) Backup Obsidian Vault to Proton Drive"
+    echo "4) Restore Obsidian Vault from Proton Drive"
+    echo "5) Exit"
     echo ""
 }
 
@@ -218,6 +407,16 @@ while true; do
             read -p "Press Enter to return to menu..."
             ;;
         3)
+            # Backup Obsidian Vault to Proton Drive
+            backup_obsidian_to_proton
+            read -p "Press Enter to return to menu..."
+            ;;
+        4)
+            # Restore Obsidian Vault from Proton Drive
+            restore_obsidian_from_proton
+            read -p "Press Enter to return to menu..."
+            ;;
+        5)
             # Exit
             print_info "Exiting..."
             exit 0
@@ -421,30 +620,37 @@ fi
 
 if ask_continue "Install EnvyControl and Configure GPU Mode" \
 "This step installs EnvyControl, a tool for managing GPU modes on
-NVIDIA Optimus laptops (Intel + NVIDIA hybrid systems).
-
-EnvyControl replaces our manual X11 GPU configuration and handles
-everything properly, including:
-  - Writing correct X11/xorg configuration
-  - Setting up kernel module options
-  - Managing SDDM display manager integration
-  - Supporting mode switching without bricking the system
+NVIDIA Optimus laptops (Intel + NVIDIA hybrid systems), plus the
+power-related pieces the CachyOS wiki recommends for hybrid-GPU
+laptops (https://wiki.cachyos.org/configuration/dual_gpu/).
 
 GPU Modes available:
   - integrated: Intel GPU only (maximum battery life)
-  - hybrid:     Both GPUs, NVIDIA used on-demand (balanced)
-  - nvidia:     NVIDIA GPU only (maximum performance)
+  - hybrid:     Both GPUs, NVIDIA used on-demand via PRIME offload (balanced)
+  - nvidia:     NVIDIA GPU only, always on (maximum performance, worst battery)
 
-We'll set 'nvidia' mode with ForceCompositionPipeline enabled.
-ForceCompositionPipeline prevents screen tearing on external monitors.
+We'll set 'hybrid' mode. This is what CachyOS recommends by default:
+the RTX 3080 stays powered off until something explicitly asks for it
+(prime-run, a Steam launch option, or KDE's 'Run using dedicated
+graphics card' right-click option), then powers back down when idle.
+Forcing 'nvidia' mode instead keeps the dGPU on permanently, which
+measurably drains battery even at idle.
+
+Also installed in this step:
+  - nvidia-prime: adds the 'prime-run <program>' shortcut for forcing
+    a specific app onto the NVIDIA GPU
+  - switcheroo-control: powers KDE's per-app 'Run using dedicated
+    graphics card' checkbox in hybrid mode
+  - thermald: Intel thermal management daemon, applies CPU power/perf
+    limits before the firmware has to throttle aggressively
 
 ⚠️  EnvyControl will manage /etc/X11/xorg.conf and related files.
     Do not manually edit these files after this step.
 
 To switch modes later:
-  sudo envycontrol -s hybrid    # Battery saving
-  sudo envycontrol -s nvidia    # Gaming/external monitor
-  sudo envycontrol -s integrated # Maximum battery
+  sudo envycontrol -s hybrid     # Default - battery saving, PRIME offload
+  sudo envycontrol -s nvidia     # Gaming/external monitor, dGPU always on
+  sudo envycontrol -s integrated # Maximum battery, dGPU fully off
   (Requires reboot after switching)"; then
 
     print_header "Step 5: Installing EnvyControl"
@@ -453,17 +659,31 @@ To switch modes later:
     print_info "Installing EnvyControl from AUR..."
     yay -S --noconfirm envycontrol
 
+    # nvidia-prime gives us the 'prime-run' wrapper for PRIME offload
+    print_info "Installing nvidia-prime for PRIME render offload..."
+    sudo pacman -S --noconfirm --needed nvidia-prime
+
+    # switcheroo-control powers KDE's per-app dGPU toggle
+    print_info "Installing and enabling switcheroo-control..."
+    sudo pacman -S --noconfirm --needed switcheroo-control
+    sudo systemctl enable --now switcheroo-control.service
+
+    # thermald manages Intel thermal limits before the firmware throttles
+    print_info "Installing and enabling thermald..."
+    sudo pacman -S --noconfirm --needed thermald
+    sudo systemctl enable --now thermald.service
+
     # Enable nvidia-drm modesetting (EnvyControl doesn't manage this)
     print_info "Configuring NVIDIA kernel module options..."
     echo "options nvidia-drm modeset=1" | sudo tee /etc/modprobe.d/nvidia.conf > /dev/null
     echo "options nvidia NVreg_PreserveVideoMemoryAllocations=1" | sudo tee -a /etc/modprobe.d/nvidia.conf > /dev/null
 
-    # Set nvidia mode with ForceCompositionPipeline (prevents screen tearing)
-    print_info "Setting GPU mode to NVIDIA with ForceCompositionPipeline..."
-    sudo envycontrol -s nvidia --force-comp --dm sddm
+    # Set hybrid mode - dGPU sleeps until something requests it via PRIME offload
+    print_info "Setting GPU mode to hybrid (PRIME offload)..."
+    sudo envycontrol -s hybrid --dm sddm
 
-    print_success "EnvyControl installed and GPU set to NVIDIA mode"
-    print_info "ForceCompositionPipeline enabled (prevents screen tearing)"
+    print_success "EnvyControl installed and GPU set to hybrid mode"
+    print_info "Use 'prime-run <program>' or KDE's per-app toggle to run something on the RTX 3080"
     print_info "To switch modes: sudo envycontrol -s [integrated|hybrid|nvidia]"
 fi
 
@@ -521,7 +741,8 @@ if ask_continue "Install Applications" \
 "This step installs your requested applications:
 
   - discord: Voice, video, and text chat for communities
-  - brave-bin: Privacy-focused web browser (from AUR)
+  - vivaldi: Power-user focused web browser (from official repo)
+  - vivaldi-ffmpeg-codecs: Proprietary codec support for Vivaldi
   - bitwarden: Password manager
   - steam: Gaming platform
   - vlc: Media player
@@ -548,8 +769,8 @@ This may take 15-25 minutes depending on your system and internet speed."; then
     print_header "Step 8: Installing Applications"
 
     # Define packages
-    OFFICIAL_PACKAGES="discord steam vlc ttf-ibmplex-mono-nerd"
-    AUR_PACKAGES="brave-bin bitwarden visual-studio-code-bin obsidian wezterm antigravity"
+    OFFICIAL_PACKAGES="discord steam vlc ttf-ibmplex-mono-nerd vivaldi vivaldi-ffmpeg-codecs"
+    AUR_PACKAGES="bitwarden visual-studio-code-bin obsidian wezterm antigravity"
 
     # Install official packages
     print_info "Installing packages from official repositories..."
@@ -622,13 +843,13 @@ if ask_continue "Remove Unwanted Software" \
 
 Removing:
   - alacritty: Default terminal (replaced by WezTerm)
-  - firefox: Default browser (replaced by Brave)
+  - firefox: Default browser (replaced by Vivaldi)
   - firefox-ublock-origin: Firefox extension
 
 This includes removing all config files and data for these applications
 to keep your system clean.
 
-Note: Firefox will only be removed if Brave installed successfully."; then
+Note: Firefox will only be removed if Vivaldi installed successfully."; then
 
     print_header "Step 9: Removing Unwanted Software"
 
@@ -658,9 +879,9 @@ Note: Firefox will only be removed if Brave installed successfully."; then
     # Remove Alacritty
     remove_package_with_configs "alacritty" ".config/alacritty" ".cache/alacritty"
 
-    # Remove Firefox (only if Brave installed successfully)
-    if pacman -Q brave-bin &>/dev/null; then
-        print_info "Brave installed successfully, removing Firefox..."
+    # Remove Firefox (only if Vivaldi installed successfully)
+    if pacman -Q vivaldi &>/dev/null; then
+        print_info "Vivaldi installed successfully, removing Firefox..."
         remove_package_with_configs "firefox" ".mozilla" ".cache/mozilla"
 
         # Also remove ublock-origin if present
@@ -670,7 +891,7 @@ Note: Firefox will only be removed if Brave installed successfully."; then
 
         print_success "Firefox and extensions removed"
     else
-        print_warning "Brave not found, keeping Firefox as fallback"
+        print_warning "Vivaldi not found, keeping Firefox as fallback"
     fi
 
     print_success "Unwanted software removed"
@@ -748,6 +969,7 @@ Configs to deploy:
   - KDE settings → ~/.config/ (fonts, shortcuts, defaults, etc.)
   - Obsidian → ~/.config/obsidian/ (if available)
   - VS Code → ~/.config/Code/User/settings.json (if available)
+  - Vivaldi → ~/.config/vivaldi/ (bookmarks/preferences only, if available)
 
 Config files must be in ./configs/ directory relative to this script."; then
 
@@ -810,7 +1032,57 @@ Config files must be in ./configs/ directory relative to this script."; then
         print_info "No VS Code settings found, skipping"
     fi
 
+    # Deploy Vivaldi configs (bookmarks/preferences only - never touches
+    # cache, cookies, or saved logins on the live profile)
+    if [ -d "$SCRIPT_DIR/configs/vivaldi" ]; then
+        print_info "Deploying Vivaldi configuration..."
+        mkdir -p ~/.config/vivaldi
+        command -v rsync &>/dev/null || sudo pacman -S --noconfirm --needed rsync
+        rsync -a \
+            --exclude='*[Cc]ache*' \
+            --exclude='*Cookies*' \
+            --exclude='*Login Data*' \
+            --exclude='Singleton*' \
+            "$SCRIPT_DIR/configs/vivaldi/" ~/.config/vivaldi/ 2>/dev/null || true
+        print_success "Vivaldi config deployed"
+    else
+        print_info "No Vivaldi config found, skipping"
+    fi
+
     print_success "All configurations deployed"
+fi
+
+################################################################################
+# STEP 13: Install Proton Drive CLI
+################################################################################
+
+if ask_continue "Install Proton Drive CLI" \
+"This step installs the official Proton Drive command-line client, used
+to back up and restore your Obsidian vault to/from Proton Drive
+(https://proton.me/blog/proton-drive-cli).
+
+We'll install 'proton-drive-cli-bin' from the AUR (the precompiled
+binary, package name 'proton-drive').
+
+⚠️  Sign-in happens through your browser, not this script. After install,
+    run 'proton-drive auth login' yourself and keep the terminal open
+    until it finishes - the session is then stored securely via
+    libsecret (KWallet's secret-service on this system).
+
+Once signed in, use the main menu:
+  3) Backup Obsidian Vault to Proton Drive
+  4) Restore Obsidian Vault from Proton Drive
+
+The vault path is set near the top of this script (OBSIDIAN_VAULT_DIR),
+currently: $OBSIDIAN_VAULT_DIR"; then
+
+    print_header "Step 13: Installing Proton Drive CLI"
+
+    yay -S --noconfirm proton-drive-cli-bin
+
+    print_success "Proton Drive CLI installed"
+    print_info "Sign in with: proton-drive auth login"
+    print_info "Then use menu options 3/4 to backup/restore your Obsidian vault"
 fi
 
 ################################################################################
@@ -826,16 +1098,18 @@ echo "  ✓ System updated to latest packages"
 echo "  ✓ NVIDIA drivers installed/verified"
 echo "  ✓ X11 installed and set as default display server"
 echo "  ✓ GLX vendor configured for NVIDIA"
-echo "  ✓ EnvyControl installed - GPU set to NVIDIA mode with ForceCompositionPipeline"
+echo "  ✓ EnvyControl installed - GPU set to hybrid mode (PRIME offload)"
+echo "  ✓ switcheroo-control and thermald installed and enabled"
 echo "  ✓ Initramfs rebuilt with new configuration"
 echo "  ✓ YAY AUR helper installed"
 echo "  ✓ Gaming meta package installed"
-echo "  ✓ Applications installed (Discord, Brave, Bitwarden, Steam, VLC, VS Code, Obsidian, WezTerm, Antigravity)"
+echo "  ✓ Applications installed (Discord, Vivaldi, Bitwarden, Steam, VLC, VS Code, Obsidian, WezTerm, Antigravity)"
 echo "  ✓ Razer Control Revived installed (fan, RGB, battery, power monitoring)"
 echo "  ✓ Razer Control KDE widget installed"
 echo "  ✓ Unwanted software removed (Alacritty, Firefox)"
 echo "  ✓ NVIDIA power management services enabled"
 echo "  ✓ Custom configurations deployed"
+echo "  ✓ Proton Drive CLI installed (sign in with: proton-drive auth login)"
 echo ""
 
 # Register post-reboot script to run on first login
@@ -861,11 +1135,13 @@ echo "The post-reboot script will run automatically on your first login."
 echo ""
 echo "Useful commands after reboot:"
 echo "  envycontrol --query              # Check current GPU mode"
-echo "  sudo envycontrol -s hybrid       # Switch to hybrid (battery saving)"
-echo "  sudo envycontrol -s nvidia       # Switch back to NVIDIA only"
+echo "  prime-run <program>              # Force an app onto the RTX 3080"
+echo "  sudo envycontrol -s nvidia       # Switch to NVIDIA only (dGPU always on)"
 echo "  sudo envycontrol -s integrated   # Intel only (maximum battery)"
 echo "  nvidia-smi                       # Monitor GPU usage"
 echo "  yay -Syu                         # Update all packages"
+echo "  proton-drive auth login          # Sign in to Proton Drive (do this before backing up)"
+echo "  ./cachyos-setup.sh                # Menu options 3/4: backup/restore Obsidian vault"
 echo ""
 
 read -p "Would you like to reboot now? [y/N] " -n 1 -r

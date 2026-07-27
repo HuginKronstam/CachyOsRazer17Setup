@@ -2,6 +2,9 @@
 last-run.log
 post-reboot.log
 
+# Local state for Proton Drive incremental Obsidian backups
+.proton-obsidian-backup-marker
+
 # Sensitive configuration files
 # Add any configs that contain passwords, API keys, or personal info
 
@@ -20,8 +23,15 @@ configs/kde/*credential*
 configs/ssh/
 
 # Browser profiles (may contain passwords/cookies)
-configs/brave/
 configs/firefox/
+
+# Vivaldi profile is backed up (bookmarks/preferences/etc.), but never
+# these - defense in depth in case something slips past the rsync
+# --exclude flags in cachyos-setup.sh
+configs/vivaldi/**/*[Cc]ache*
+configs/vivaldi/**/*Cookies*
+configs/vivaldi/**/*Login Data*
+configs/vivaldi/**/Singleton*
 
 # Backup files
 *.backup

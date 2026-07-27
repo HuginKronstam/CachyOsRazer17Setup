@@ -15,8 +15,10 @@ CachyOsRazer17Setup/
     │   └── (KDE configs)  # KDE customizations
     ├── obsidian/
     │   └── (configs)      # Obsidian configs
-    └── vscode/
-        └── settings.json  # VS Code settings
+    ├── vscode/
+    │   └── settings.json  # VS Code settings
+    └── vivaldi/
+        └── (configs)      # Vivaldi bookmarks/preferences (no cache/cookies/logins)
 ```
 
 ## Quick Start - Fresh Install
@@ -44,12 +46,16 @@ chmod +x cachyos-setup.sh
 
 1) Setup System
 2) Backup Configs
-3) Exit
+3) Backup Obsidian Vault to Proton Drive
+4) Restore Obsidian Vault from Proton Drive
+5) Exit
 ```
 
 - **Option 1**: Install system (choose interactive/automatic mode)
 - **Option 2**: Backup your current configs to ./configs/
-- **Option 3**: Exit
+- **Option 3**: Upload your Obsidian vault to Proton Drive
+- **Option 4**: Download your Obsidian vault from Proton Drive (overwrites local changes that differ)
+- **Option 5**: Exit
 
 ### 3. Follow the Prompts
 
@@ -75,7 +81,14 @@ After the script completes, reboot to apply all changes.
 - Backs up all KDE customizations (fonts, shortcuts, power, etc.)
 - Backs up Obsidian configs
 - Backs up VS Code settings
+- Backs up Vivaldi bookmarks/preferences
 - Saves everything to ./configs/ ready for git commit
+
+### Obsidian Vault Backup/Restore (Proton Drive)
+- Uses the official [Proton Drive CLI](https://proton.me/blog/proton-drive-cli) (`proton-drive-cli-bin` from the AUR)
+- Backs up your actual notes (not just app settings) to `/my-files/<vault name>` on Proton Drive
+- Restore pulls the vault back down - local files that differ are replaced with the Proton Drive version
+- Requires signing in once with `proton-drive auth login` (opens a browser; the script can't do this non-interactively)
 
 ## How to Use
 
@@ -115,13 +128,16 @@ After the script completes, reboot to apply all changes.
    - X11 Optimus setup (supports both Intel and NVIDIA GPUs)
    - Fixes black box rendering issues
    - Enables both laptop and external displays
-5. **GPU Configuration** - Sets NVIDIA as primary GPU for rendering
+5. **GPU Configuration** - Sets GPU mode to **hybrid** (PRIME offload): the RTX
+   3080 stays powered off until an app explicitly requests it (`prime-run`,
+   a Steam launch option, or KDE's per-app toggle), then powers back down.
+   Also installs `nvidia-prime`, `switcheroo-control`, and `thermald`.
 6. **Initramfs Rebuild** - Applies driver changes
 7. **YAY Installation** - Installs AUR helper
 8. **Gaming Setup** - Installs cachyos-gaming-meta package
 9. **Applications** - Installs your software suite:
    - Discord
-   - Brave Browser
+   - Vivaldi Browser
    - Bitwarden
    - Steam
    - VLC
@@ -131,11 +147,12 @@ After the script completes, reboot to apply all changes.
    - BlexMono Nerd Font
 10. **Remove Unwanted Software** - Removes pre-installed apps:
    - Alacritty (replaced by WezTerm)
-   - Firefox (replaced by Brave)
+   - Firefox (replaced by Vivaldi)
    - All associated configs cleaned up
 11. **NVIDIA Services** - Enables power management for suspend/resume
 12. **Verification** - Checks that NVIDIA is working
 13. **Deploy Configurations** - Deploys all your custom configs (done last to ensure proper defaults)
+14. **Proton Drive CLI** - Installs `proton-drive-cli-bin` for Obsidian vault backup/restore (see below). You still need to run `proton-drive auth login` yourself afterward - sign-in opens a browser and can't be scripted.
 
 ### After Running
 
@@ -166,6 +183,44 @@ When you've customized your system and want to save those changes:
 
 Now your configs are saved and will be deployed on your next fresh install!
 
+## Backing Up Your Obsidian Vault (Proton Drive)
+
+Unlike `configs/`, your Obsidian **vault** (the actual notes) is never committed to
+this git repo - it goes to Proton Drive instead, end-to-end encrypted.
+
+1. **One-time setup:**
+   ```bash
+   yay -S proton-drive-cli-bin   # or via Setup System, step 13
+   proton-drive auth login       # opens a browser - keep the terminal open until it's done
+   ```
+
+2. **Back up:**
+   ```bash
+   ./cachyos-setup.sh
+   # Select option 3) Backup Obsidian Vault to Proton Drive
+   ```
+   This uploads `OBSIDIAN_VAULT_DIR` (set near the top of `cachyos-setup.sh`, defaults to
+   `~/Documents/Obsidian/Hugins Saga`) to `/my-files/<vault name>` on Proton Drive. It's
+   a one-way push - files that differ are **replaced** with your local copy.
+
+   The Proton Drive CLI has no built-in diffing, so the script does its own: the very
+   first backup uploads the whole vault once, then every backup after that only
+   uploads files whose modification time changed since the last successful run
+   (tracked via `.proton-obsidian-backup-marker`, gitignored). If nothing changed,
+   it skips the upload entirely - no repeated full-vault re-uploads.
+
+3. **Restore (e.g. on a fresh install):**
+   ```bash
+   ./cachyos-setup.sh
+   # Select option 4) Restore Obsidian Vault from Proton Drive
+   ```
+   This downloads `/my-files/<vault name>` back into `OBSIDIAN_VAULT_DIR`. Local files
+   that differ from the Proton Drive version are **replaced** - back up first if you
+   have local changes you don't want to lose.
+
+If your vault moves or gets renamed, update `OBSIDIAN_VAULT_DIR` near the top of
+`cachyos-setup.sh` to match.
+
 ### Why X11 Instead of Wayland?
 
 The script defaults to X11 because:
@@ -175,12 +230,14 @@ The script defaults to X11 because:
 - **Better game compatibility**
 - **No rendering issues** (black boxes) with NVIDIA
 
-The script configures **NVIDIA Optimus** properly so:
+The script configures **NVIDIA Optimus in hybrid mode (PRIME offload)** so:
 - ✅ Laptop screen works (via Intel GPU output)
-- ✅ External monitors work (via NVIDIA GPU)
-- ✅ NVIDIA does all rendering (high performance)
-- ✅ Gaming is smooth on both laptop and external displays
+- ✅ External monitors work (via NVIDIA GPU when needed)
+- ✅ The RTX 3080 stays powered off at idle and wakes on demand - much better battery life than forcing it on permanently
+- ✅ Gaming is smooth on both laptop and external displays once launched via `prime-run`, Steam, or KDE's per-app toggle
 - ✅ No black boxes or GLX errors
+
+If you're docked and gaming full-time and don't care about battery, you can switch to always-on NVIDIA with `sudo envycontrol -s nvidia` (see below).
 
 You can still switch to Wayland later if you want to test it - just select "Plasma (Wayland)" at the login screen.
 
@@ -226,7 +283,7 @@ The script is well-commented and modular. To add your own software:
 Example:
 ```bash
 OFFICIAL_PACKAGES="discord joplin-desktop p7zip steam vlc neofetch htop"
-AUR_PACKAGES="brave-bin bitwarden visual-studio-code-bin spotify"
+AUR_PACKAGES="bitwarden visual-studio-code-bin spotify"
 ```
 
 ### Useful Commands After Setup
@@ -235,7 +292,10 @@ AUR_PACKAGES="brave-bin bitwarden visual-studio-code-bin spotify"
 - **Monitor GPU continuously:** `watch -n 1 nvidia-smi`
 - **NVIDIA settings:** `nvidia-settings`
 - **Check which GPU is being used:** `glxinfo | grep "OpenGL renderer"`
-- **Force app to use NVIDIA:** `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia application-name`
+- **Force an app onto the RTX 3080:** `prime-run application-name` (shortcut for the `__NV_PRIME_RENDER_OFFLOAD`/`__GLX_VENDOR_LIBRARY_NAME` env vars, installed via `nvidia-prime`)
+- **Run on dedicated GPU from KDE:** right-click the app → Properties → Advanced Options → "Run using dedicated graphics card" (needs `switcheroo-control`, installed by the script)
+- **Proton Drive sign-in:** `proton-drive auth login`
+- **List your Proton Drive files:** `proton-drive filesystem list /my-files`
 
 ### Steam-Specific Tips
 
@@ -250,11 +310,11 @@ For per-game settings:
 
 ### Why This Configuration is Safe
 
-- **Doesn't blacklist Intel GPU** (which can brick your system)
-- **Uses environment variables** to prefer NVIDIA
-- **Keeps Intel as fallback** for basic display if NVIDIA fails
+- **Doesn't blacklist Intel GPU** (which can brick your system) - Intel drives the displays by default in hybrid mode
+- **Uses PRIME offload** (`prime-run`, launch options, KDE's per-app toggle) to send specific apps to NVIDIA instead of forcing it on for everything
+- **Matches the CachyOS-recommended default** for hybrid-GPU laptops - see [wiki.cachyos.org/configuration/dual_gpu](https://wiki.cachyos.org/configuration/dual_gpu/)
 - **DKMS drivers** automatically rebuild on kernel updates
-- **Tested configuration** commonly used for hybrid GPU laptops
+- **Much better idle battery life** than forcing NVIDIA on permanently - the dGPU powers down when nothing needs it
 
 ## Need Help?
 

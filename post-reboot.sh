@@ -149,24 +149,38 @@ verify_nvidia() {
         fail "nvidia-smi failed - NVIDIA driver not working"
     fi
 
-    # Check GLX renderer
+    # In hybrid mode, the default GLX renderer should be Intel - the
+    # NVIDIA GPU stays asleep until something requests it via PRIME offload
     local renderer
     renderer=$(glxinfo 2>/dev/null | grep "OpenGL renderer" | awk -F': ' '{print $2}')
-    if echo "$renderer" | grep -qi "nvidia"; then
-        pass "GLX renderer: $renderer"
+    if echo "$renderer" | grep -qi "llvmpipe\|softpipe"; then
+        fail "GLX using software rendering: $renderer (expected Intel)"
     elif [ -n "$renderer" ]; then
-        fail "GLX using wrong renderer: $renderer (expected NVIDIA)"
+        pass "Default GLX renderer: $renderer"
     else
         fail "GLX renderer not detected (glxinfo failed)"
+    fi
+
+    # Check that PRIME offload actually reaches the NVIDIA GPU
+    if command -v prime-run &>/dev/null; then
+        local prime_renderer
+        prime_renderer=$(prime-run glxinfo 2>/dev/null | grep "OpenGL renderer" | awk -F': ' '{print $2}')
+        if echo "$prime_renderer" | grep -qi "nvidia"; then
+            pass "PRIME offload renderer: $prime_renderer"
+        else
+            fail "prime-run did not select NVIDIA (got: $prime_renderer)"
+        fi
+    else
+        warn "prime-run not found - nvidia-prime may not be installed"
     fi
 
     # Check EnvyControl mode
     local envy_mode
     envy_mode=$(envycontrol --query 2>/dev/null || echo "unknown")
-    if echo "$envy_mode" | grep -qi "nvidia"; then
+    if echo "$envy_mode" | grep -qi "hybrid"; then
         pass "EnvyControl mode: $envy_mode"
     else
-        warn "EnvyControl mode: $envy_mode (expected nvidia)"
+        warn "EnvyControl mode: $envy_mode (expected hybrid)"
     fi
 
     # Check NVIDIA DRM modeset
@@ -215,7 +229,7 @@ verify_applications() {
     print_section "Installed Applications"
 
     local apps=(
-        "brave:brave"
+        "vivaldi:Vivaldi"
         "discord:discord"
         "steam:steam"
         "vlc:vlc"
@@ -244,6 +258,8 @@ verify_services() {
         "nvidia-suspend.service"
         "nvidia-hibernate.service"
         "nvidia-resume.service"
+        "switcheroo-control.service"
+        "thermald.service"
     )
 
     for service in "${services[@]}"; do
@@ -274,13 +290,13 @@ configure_kde_defaults() {
         warn "WezTerm not found, skipping terminal default"
     fi
 
-    # Set Brave as default browser
-    if command -v brave &>/dev/null; then
-        xdg-settings set default-web-browser brave-browser.desktop 2>/dev/null \
-            && pass "Brave set as default browser" \
-            || warn "Could not set Brave as default browser"
+    # Set Vivaldi as default browser
+    if command -v vivaldi &>/dev/null; then
+        xdg-settings set default-web-browser vivaldi-stable.desktop 2>/dev/null \
+            && pass "Vivaldi set as default browser" \
+            || warn "Could not set Vivaldi as default browser"
     else
-        warn "Brave not found, skipping browser default"
+        warn "Vivaldi not found, skipping browser default"
     fi
 }
 
@@ -318,7 +334,12 @@ run_gpu_stress_test() {
         echo ""
 
         local output
-        output=$(glmark2 2>&1)
+        if command -v prime-run &>/dev/null; then
+            info "Running via prime-run to benchmark the RTX 3080 (hybrid mode leaves it idle otherwise)"
+            output=$(prime-run glmark2 2>&1)
+        else
+            output=$(glmark2 2>&1)
+        fi
         local score
         score=$(echo "$output" | grep -o "glmark2 Score: [0-9]*" | grep -o "[0-9]*")
 
