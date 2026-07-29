@@ -65,11 +65,11 @@ info() {
 }
 
 ################################################################################
-# X11 Session Guard
+# Wayland Session Guard
 ################################################################################
 
-check_x11_session() {
-    if [ "$XDG_SESSION_TYPE" = "x11" ]; then
+check_wayland_session() {
+    if [ "$XDG_SESSION_TYPE" = "wayland" ]; then
         return 0
     else
         return 1
@@ -83,16 +83,16 @@ handle_wrong_session() {
     echo -e "${RED}╚══════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "Current session: ${RED}$XDG_SESSION_TYPE${NC}"
-    echo -e "Required session: ${GREEN}x11${NC}"
+    echo -e "Required session: ${GREEN}wayland${NC}"
     echo ""
-    echo "This script must run under an X11 session to verify"
+    echo "This script must run under the Plasma Wayland session to verify"
     echo "the NVIDIA GPU configuration correctly."
     echo ""
     echo "To fix this:"
     echo "  1. Log out"
     echo "  2. At the login screen, select your username"
     echo "  3. Look for session selector (gear icon, bottom corner)"
-    echo "  4. Select 'Plasma (X11)'"
+    echo "  4. Select 'Plasma (Wayland)'"
     echo "  5. Log back in - this script will run automatically"
     echo ""
 
@@ -130,10 +130,10 @@ verify_session() {
     local session_type="${XDG_SESSION_TYPE:-unknown}"
     info "Session type: $session_type"
 
-    if [ "$session_type" = "x11" ]; then
-        pass "Running in X11 session"
+    if [ "$session_type" = "wayland" ]; then
+        pass "Running in Wayland session"
     else
-        fail "Not running in X11 session (got: $session_type)"
+        fail "Not running in Wayland session (got: $session_type)"
     fi
 }
 
@@ -149,38 +149,47 @@ verify_nvidia() {
         fail "nvidia-smi failed - NVIDIA driver not working"
     fi
 
-    # In hybrid mode, the default GLX renderer should be Intel - the
-    # NVIDIA GPU stays asleep until something requests it via PRIME offload
+    # Check EnvyControl mode - this determines what "correct" looks like below.
+    # Default is nvidia (docked, external monitor is wired to the dGPU on
+    # this laptop). Toggle to hybrid via ~/.local/bin/gpu-mode-toggle.sh
+    # for mobile/battery use.
+    local envy_mode
+    envy_mode=$(envycontrol --query 2>/dev/null || echo "unknown")
+    if echo "$envy_mode" | grep -qi "nvidia\|hybrid"; then
+        pass "EnvyControl mode: $envy_mode"
+    else
+        warn "EnvyControl mode: $envy_mode (expected nvidia or hybrid)"
+    fi
+
+    # glxinfo runs through XWayland here, but still reflects which GPU is
+    # actually driving default GLX rendering
     local renderer
     renderer=$(glxinfo 2>/dev/null | grep "OpenGL renderer" | awk -F': ' '{print $2}')
     if echo "$renderer" | grep -qi "llvmpipe\|softpipe"; then
-        fail "GLX using software rendering: $renderer (expected Intel)"
-    elif [ -n "$renderer" ]; then
-        pass "Default GLX renderer: $renderer"
-    else
+        fail "GLX using software rendering: $renderer"
+    elif [ -z "$renderer" ]; then
         fail "GLX renderer not detected (glxinfo failed)"
-    fi
-
-    # Check that PRIME offload actually reaches the NVIDIA GPU
-    if command -v prime-run &>/dev/null; then
-        local prime_renderer
-        prime_renderer=$(prime-run glxinfo 2>/dev/null | grep "OpenGL renderer" | awk -F': ' '{print $2}')
-        if echo "$prime_renderer" | grep -qi "nvidia"; then
-            pass "PRIME offload renderer: $prime_renderer"
+    elif echo "$envy_mode" | grep -qi "nvidia"; then
+        # nvidia mode: NVIDIA should be doing all rendering directly
+        if echo "$renderer" | grep -qi "nvidia"; then
+            pass "Default GLX renderer: $renderer"
         else
-            fail "prime-run did not select NVIDIA (got: $prime_renderer)"
+            fail "GLX renderer is '$renderer', expected NVIDIA (mode is nvidia)"
         fi
     else
-        warn "prime-run not found - nvidia-prime may not be installed"
-    fi
-
-    # Check EnvyControl mode
-    local envy_mode
-    envy_mode=$(envycontrol --query 2>/dev/null || echo "unknown")
-    if echo "$envy_mode" | grep -qi "hybrid"; then
-        pass "EnvyControl mode: $envy_mode"
-    else
-        warn "EnvyControl mode: $envy_mode (expected hybrid)"
+        # hybrid mode: Intel should be the default, NVIDIA only via PRIME offload
+        pass "Default GLX renderer: $renderer"
+        if command -v prime-run &>/dev/null; then
+            local prime_renderer
+            prime_renderer=$(prime-run glxinfo 2>/dev/null | grep "OpenGL renderer" | awk -F': ' '{print $2}')
+            if echo "$prime_renderer" | grep -qi "nvidia"; then
+                pass "PRIME offload renderer: $prime_renderer"
+            else
+                fail "prime-run did not select NVIDIA (got: $prime_renderer)"
+            fi
+        else
+            warn "prime-run not found - nvidia-prime may not be installed"
+        fi
     fi
 
     # Check NVIDIA DRM modeset
@@ -191,23 +200,45 @@ verify_nvidia() {
     else
         warn "NVIDIA DRM modesetting: $modeset (expected Y)"
     fi
+
+    # gpu-mode-toggle.sh should be installed and executable
+    if [ -x "$HOME/.local/bin/gpu-mode-toggle.sh" ]; then
+        pass "GPU mode toggle script installed"
+    else
+        warn "GPU mode toggle script not found at ~/.local/bin/gpu-mode-toggle.sh"
+    fi
+
+    # gpu-mode-monitor.service should be running
+    if systemctl --user is-active gpu-mode-monitor.service &>/dev/null; then
+        pass "GPU mode auto-detect service is running"
+    else
+        warn "GPU mode auto-detect service not running - attempting to start..."
+        systemctl --user enable --now gpu-mode-monitor.service 2>/dev/null \
+            && pass "GPU mode auto-detect service started" \
+            || fail "Could not start gpu-mode-monitor.service"
+    fi
 }
 
 verify_display() {
     print_section "Display Configuration"
 
-    # Check connected displays
-    local display_count
-    display_count=$(xrandr 2>/dev/null | grep -c " connected")
+    # Read connector status directly from sysfs - works the same under
+    # X11 or Wayland, unlike xrandr which only reflects the X11/XWayland view
+    local display_count=0 f conn st
+    for f in /sys/class/drm/card*-*/status; do
+        conn="$(basename "$(dirname "$f")")"
+        st="$(cat "$f" 2>/dev/null)"
+        if [ "$st" = "connected" ]; then
+            display_count=$((display_count + 1))
+            info "  → $conn: connected"
+        fi
+    done
     info "Connected displays: $display_count"
 
     if [ "$display_count" -ge 1 ]; then
         pass "At least one display detected"
-        xrandr 2>/dev/null | grep " connected" | while read -r line; do
-            info "  → $line"
-        done
     else
-        fail "No displays detected via xrandr"
+        fail "No displays detected via /sys/class/drm"
     fi
 }
 
@@ -225,6 +256,49 @@ verify_razer() {
     fi
 }
 
+verify_controller() {
+    print_section "8BitDo Controller"
+
+    # 2dc8 is 8BitDo's USB vendor ID. No dedicated package/driver install is
+    # needed - xpad ships in the linux-cachyos kernel already and binds
+    # automatically when the controller is in Xbox/XInput mode (the mode
+    # with the best Linux/Steam Input compatibility). This just confirms
+    # that actually happened, and only runs checks if one is connected.
+    if ! lsusb 2>/dev/null | grep -qi "2dc8"; then
+        info "No 8BitDo controller detected - connect it to check driver binding"
+        return
+    fi
+
+    if lsmod | grep -q "^xpad "; then
+        pass "xpad driver loaded"
+    else
+        warn "xpad driver not loaded"
+    fi
+
+    local xpad_bound=0 d intf
+    for d in /sys/bus/usb/devices/*/; do
+        grep -q "2dc8" "$d/idVendor" 2>/dev/null || continue
+        for intf in "$d"*:*; do
+            [ -d "$intf" ] || continue
+            if [ "$(basename "$(readlink -f "$intf/driver" 2>/dev/null)" 2>/dev/null)" = "xpad" ]; then
+                xpad_bound=1
+            fi
+        done
+    done
+
+    if [ "$xpad_bound" -eq 1 ]; then
+        pass "8BitDo controller bound to xpad (correct driver)"
+    else
+        warn "8BitDo controller detected but not bound to xpad - check it's in Xbox/XInput mode"
+    fi
+
+    if ls /dev/input/by-id/*8BitDo*joystick 2>/dev/null | grep -q .; then
+        pass "Joystick device present"
+    else
+        warn "No joystick device found for the 8BitDo controller"
+    fi
+}
+
 verify_applications() {
     print_section "Installed Applications"
 
@@ -238,6 +312,8 @@ verify_applications() {
         "wezterm:wezterm"
         "envycontrol:EnvyControl"
         "nvidia-smi:NVIDIA SMI"
+        "caligula:Caligula"
+        "wtype:wtype"
     )
 
     for entry in "${apps[@]}"; do
@@ -249,6 +325,22 @@ verify_applications() {
             fail "$name (command '$cmd' not found)"
         fi
     done
+
+    # Handy needs an actual launch test, not just a command -v check - it
+    # can be "installed" but fail to start over a missing shared library
+    # (handy-bin doesn't declare openblas as a dependency, even though it
+    # needs it - see Step 8's explanation)
+    if command -v handy &>/dev/null; then
+        local handy_output
+        handy_output=$(handy --help 2>&1)
+        if echo "$handy_output" | grep -qi "error while loading shared libraries"; then
+            fail "Handy: $(echo "$handy_output" | head -1)"
+        else
+            pass "Handy"
+        fi
+    else
+        fail "Handy (command 'handy' not found)"
+    fi
 }
 
 verify_services() {
@@ -423,8 +515,8 @@ cleanup_autostart() {
 # Initialize log
 echo "=== CachyOS Post-Reboot Log - $(date) ===" > "$LOG_FILE"
 
-# Check X11 session first - bail out if wrong session
-if ! check_x11_session; then
+# Check Wayland session first - bail out if wrong session
+if ! check_wayland_session; then
     handle_wrong_session
 fi
 
@@ -440,6 +532,7 @@ verify_session
 verify_nvidia
 verify_display
 verify_razer
+verify_controller
 verify_applications
 verify_services
 

@@ -133,10 +133,10 @@ ForegroundPositive=39,174,96
 ForegroundVisited=155,89,182
 
 [General]
-BrowserApplication=brave-browser.desktop
-ColorSchemeHash=2c3f86428c11011a7c64ee1e7f47c274d498ff10
-TerminalApplication=wezterm start --cwd .
-TerminalService=org.wezfurlong.wezterm.desktop
+BrowserApplication=vivaldi-stable.desktop
+ColorSchemeHash=9d38eb71ded8ff549da26d57d7cbab9164da243a
+TerminalApplication=wezterm
+TerminalService=wezterm.desktop
 XftHintStyle=hintslight
 XftSubPixel=none
 fixed=BlexMono Nerd Font,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
@@ -150,6 +150,8 @@ Theme=breeze-dark
 
 [KDE]
 AnimationDurationFactor=0.25
+contrast=4
+frameContrast=0.2
 widgetStyle=Breeze
 
 [KFileDialog Settings]

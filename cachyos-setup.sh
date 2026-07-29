@@ -34,6 +34,11 @@ OBSIDIAN_VAULT_DIR="$HOME/Documents/Obsidian/Hugins Saga"
 # incremental backups instead of re-uploading the whole vault every time.
 PROTON_BACKUP_MARKER="$SCRIPT_DIR/.proton-obsidian-backup-marker"
 
+# Where CachyOS ISOs get downloaded/cached for boot drive creation, and the
+# official mirror we scrape for the latest desktop release.
+CACHYOS_ISO_CACHE_DIR="$HOME/.cache/cachyos-setup-iso"
+CACHYOS_ISO_MIRROR="https://mirror.cachyos.org/ISO/desktop"
+
 ################################################################################
 # Helper Functions
 ################################################################################
@@ -102,7 +107,7 @@ backup_configs() {
     echo ""
 
     # Create backup directories
-    mkdir -p "$BACKUP_DIR"/{wezterm,kde,obsidian,vscode,vivaldi}
+    mkdir -p "$BACKUP_DIR"/{wezterm,kde,obsidian,vscode,vivaldi,handy}
 
     # Backup WezTerm
     if [ -f ~/.config/wezterm/wezterm.lua ]; then
@@ -120,6 +125,7 @@ backup_configs() {
         "kwinrc"
         "kwinrulesrc"
         "kglobalshortcutsrc"
+        "khotkeysrc"
         "plasma-localerc"
         "kscreenlockerrc"
         "plasmashellrc"
@@ -170,6 +176,17 @@ backup_configs() {
         print_warning "Vivaldi config not found, skipping"
     fi
 
+    # Backup Handy settings (just the settings file - not the models/
+    # directory, which holds multi-GB speech-to-text models that are
+    # trivially re-downloaded, or transcription history audio)
+    if [ -f ~/.config/com.pais.handy/settings_store.json ]; then
+        print_info "Backing up Handy settings..."
+        cp ~/.config/com.pais.handy/settings_store.json "$BACKUP_DIR/handy/"
+        print_success "Handy settings backed up"
+    else
+        print_warning "Handy settings not found, skipping"
+    fi
+
     echo ""
     print_success "Backup completed!"
     print_info "Configs saved to: $BACKUP_DIR"
@@ -180,6 +197,221 @@ backup_configs() {
     echo "  git commit -m \"Update configs from $(date +%Y-%m-%d)\""
     echo "  git push"
     echo ""
+
+    offer_create_boot_drive
+}
+
+################################################################################
+# Caligula - CachyOS Boot Drive Creation
+################################################################################
+# Checks the official mirror for the latest CachyOS desktop ISO, looks for an
+# attached removable drive with enough space, and offers to burn it with
+# caligula. Only runs the (large) download if a suitable drive is found and
+# the user opts in.
+
+# Scrapes the CachyOS ISO mirror for the latest desktop release. On success,
+# sets CACHYOS_ISO_URL, CACHYOS_ISO_NAME, CACHYOS_ISO_SHA256, CACHYOS_ISO_SIZE.
+find_latest_cachyos_iso() {
+    local index_html latest_date folder_html sha_content curl_opts=(-sL --connect-timeout 10 --max-time 30)
+
+    index_html=$(curl "${curl_opts[@]}" "$CACHYOS_ISO_MIRROR/") || return 1
+    latest_date=$(grep -oE 'href="[0-9]{6}/"' <<<"$index_html" | grep -oE '[0-9]{6}' | sort -n | tail -1)
+    [ -n "$latest_date" ] || return 1
+
+    folder_html=$(curl "${curl_opts[@]}" "$CACHYOS_ISO_MIRROR/$latest_date/") || return 1
+    CACHYOS_ISO_NAME=$(grep -oE 'href="cachyos-desktop-linux-[0-9]{6}\.iso"' <<<"$folder_html" | sed -E 's/href="(.*)"/\1/')
+    [ -n "$CACHYOS_ISO_NAME" ] || return 1
+
+    CACHYOS_ISO_URL="$CACHYOS_ISO_MIRROR/$latest_date/$CACHYOS_ISO_NAME"
+
+    sha_content=$(curl "${curl_opts[@]}" "$CACHYOS_ISO_URL.sha256") || return 1
+    CACHYOS_ISO_SHA256=$(awk '{print $1}' <<<"$sha_content")
+    [ -n "$CACHYOS_ISO_SHA256" ] || return 1
+
+    CACHYOS_ISO_SIZE=$(curl -sIL --connect-timeout 10 --max-time 30 "$CACHYOS_ISO_URL" \
+        | grep -i '^content-length:' | tail -1 | awk '{print $2}' | tr -d '\r')
+    [ -n "$CACHYOS_ISO_SIZE" ] || return 1
+
+    return 0
+}
+
+# Prints "name\tsize\ttran\tmodel\tvendor" for removable disks with at least
+# $1 bytes of capacity.
+find_usb_candidates() {
+    local min_bytes="$1"
+    command -v jq &>/dev/null || sudo pacman -S --noconfirm --needed jq
+    lsblk -d -b -J -o NAME,SIZE,TYPE,RM,TRAN,MODEL,VENDOR 2>/dev/null | \
+        jq -r --argjson min "$min_bytes" \
+        '.blockdevices[]? | select(.rm==true and .size>=$min) | "\(.name)\t\(.size)\t\(.tran)\t\(.model)\t\(.vendor)"'
+}
+
+human_size() {
+    numfmt --to=iec --suffix=B "$1" 2>/dev/null || echo "$1 bytes"
+}
+
+offer_create_boot_drive() {
+    print_header "CachyOS Boot Drive (Caligula)"
+
+    if ! command -v caligula &>/dev/null; then
+        print_warning "caligula not installed - skipping boot drive check"
+        print_info "Install it via Setup System, or manually: sudo pacman -S caligula"
+        return 0
+    fi
+
+    print_info "Checking for the latest CachyOS release and any attached USB drives..."
+
+    if ! find_latest_cachyos_iso; then
+        print_warning "Could not reach the CachyOS ISO mirror - skipping boot drive check"
+        return 0
+    fi
+
+    local candidates=()
+    while IFS=$'\t' read -r name size tran model vendor; do
+        [ -n "$name" ] && candidates+=("$name|$size|$tran|$model|$vendor")
+    done < <(find_usb_candidates "$CACHYOS_ISO_SIZE")
+
+    if [ ${#candidates[@]} -eq 0 ]; then
+        print_info "No removable drive with at least $(human_size "$CACHYOS_ISO_SIZE") free is currently plugged in - skipping"
+        return 0
+    fi
+
+    echo ""
+    print_info "Latest CachyOS release: $CACHYOS_ISO_NAME ($(human_size "$CACHYOS_ISO_SIZE"))"
+    print_info "Found ${#candidates[@]} removable drive(s) with enough space:"
+    local i=1 entry name size tran model vendor
+    for entry in "${candidates[@]}"; do
+        IFS='|' read -r name size tran model vendor <<<"$entry"
+        echo "    $i) /dev/$name - $(human_size "$size") - $(xargs <<<"$vendor $model") ($tran)"
+        i=$((i + 1))
+    done
+    echo ""
+
+    read -p "Create a CachyOS boot drive on one of these? [y/N] " confirm
+    case $confirm in
+        [Yy]*) ;;
+        *) print_info "Skipping boot drive creation"; return 0 ;;
+    esac
+
+    local device
+    if [ ${#candidates[@]} -eq 1 ]; then
+        IFS='|' read -r device _ _ _ _ <<<"${candidates[0]}"
+    else
+        read -p "Which drive? [1-${#candidates[@]}] " choice
+        if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt ${#candidates[@]} ]; then
+            print_error "Invalid selection - cancelling"
+            return 1
+        fi
+        IFS='|' read -r device _ _ _ _ <<<"${candidates[$((choice - 1))]}"
+    fi
+
+    print_warning "This will ERASE ALL DATA on /dev/$device."
+    print_info "Caligula will show its own confirmation before writing anything."
+
+    mkdir -p "$CACHYOS_ISO_CACHE_DIR"
+    local iso_path="$CACHYOS_ISO_CACHE_DIR/$CACHYOS_ISO_NAME"
+
+    if [ -f "$iso_path" ] && [ "$(sha256sum "$iso_path" | awk '{print $1}')" = "$CACHYOS_ISO_SHA256" ]; then
+        print_success "Using already-downloaded and verified ISO: $iso_path"
+    else
+        print_info "Downloading $CACHYOS_ISO_NAME ($(human_size "$CACHYOS_ISO_SIZE"))..."
+        if ! curl -L --fail -o "$iso_path" "$CACHYOS_ISO_URL"; then
+            print_error "Download failed"
+            rm -f "$iso_path"
+            return 1
+        fi
+
+        local actual_hash
+        actual_hash=$(sha256sum "$iso_path" | awk '{print $1}')
+        if [ "$actual_hash" != "$CACHYOS_ISO_SHA256" ]; then
+            print_error "Checksum mismatch - downloaded file may be corrupt, aborting"
+            rm -f "$iso_path"
+            return 1
+        fi
+        print_success "Downloaded and verified $CACHYOS_ISO_NAME"
+    fi
+
+    print_info "Launching caligula - follow its prompts to confirm and write /dev/$device"
+    if sudo caligula burn -o "/dev/$device" -z none --hash-of raw \
+        -s "sha256-$CACHYOS_ISO_SHA256" --root never "$iso_path"; then
+        print_success "Boot drive created on /dev/$device"
+        add_setup_bootstrap_partition "$device"
+    else
+        print_warning "Caligula exited without completing - boot drive may not have been created"
+    fi
+}
+
+# Adds a small FAT32 partition in whatever free space is left on the USB
+# stick after the ISO (ISOs are usually a few GB, sticks are often much
+# bigger, so there's normally plenty left over) containing a bootstrap
+# script that clones this repo. Entirely optional, skips cleanly if there's
+# no meaningful free space.
+add_setup_bootstrap_partition() {
+    local device="$1"
+    local dev_path="/dev/$device"
+
+    print_header "Setup Bootstrap Partition"
+
+    command -v parted &>/dev/null || sudo pacman -S --noconfirm --needed parted
+    command -v mkfs.vfat &>/dev/null || sudo pacman -S --noconfirm --needed dosfstools
+
+    print_info "Checking for free space on $dev_path after the ISO..."
+    sudo partprobe "$dev_path" 2>/dev/null
+    udevadm settle 2>/dev/null
+
+    local free_line free_start_mib free_size_mib
+    free_line=$(LC_ALL=C sudo parted -s -m "$dev_path" unit MiB print free 2>/dev/null | grep ':free;$' | tail -1)
+    if [ -z "$free_line" ]; then
+        print_info "No free space left on $dev_path - skipping bootstrap partition"
+        return 0
+    fi
+
+    free_start_mib=$(echo "$free_line" | cut -d: -f2 | tr -d 'MiB')
+    free_size_mib=$(echo "$free_line" | cut -d: -f4 | tr -d 'MiB')
+
+    if awk "BEGIN{exit !($free_size_mib < 8)}"; then
+        print_info "Not enough free space on $dev_path (${free_size_mib}MiB) for a bootstrap partition - skipping"
+        return 0
+    fi
+
+    print_info "Free space after the ISO: ${free_size_mib}MiB"
+    read -p "Add a small FAT32 partition there with a setup bootstrap script? [y/N] " confirm
+    case $confirm in
+        [Yy]*) ;;
+        *) print_info "Skipping bootstrap partition"; return 0 ;;
+    esac
+
+    print_info "Creating partition..."
+    if ! sudo parted -s "$dev_path" mkpart primary fat32 "${free_start_mib}MiB" 100%; then
+        print_error "Failed to create bootstrap partition"
+        return 1
+    fi
+    sudo partprobe "$dev_path" 2>/dev/null
+    udevadm settle 2>/dev/null
+    sleep 1
+
+    local part_num part_dev
+    part_num=$(LC_ALL=C sudo parted -s -m "$dev_path" print 2>/dev/null | tail -1 | cut -d: -f1)
+    part_dev="${dev_path}${part_num}"
+
+    if [ ! -b "$part_dev" ]; then
+        print_error "New partition device $part_dev not found after creation - aborting"
+        return 1
+    fi
+
+    print_info "Formatting $part_dev as FAT32..."
+    sudo mkfs.vfat -n CACHYSETUP "$part_dev" >/dev/null
+
+    local mount_point
+    mount_point=$(mktemp -d)
+    sudo mount "$part_dev" "$mount_point"
+    sudo cp "$SCRIPT_DIR/scripts/usb-bootstrap.sh" "$mount_point/bootstrap.sh"
+    sudo chmod +x "$mount_point/bootstrap.sh"
+    sync
+    sudo umount "$mount_point"
+    rmdir "$mount_point"
+
+    print_success "Bootstrap partition created on $part_dev (label CACHYSETUP)"
+    print_info "After booting from this drive: mount it and run bootstrap.sh"
 }
 
 ################################################################################
@@ -524,49 +756,58 @@ If drivers are already installed, we'll just verify them and move on."; then
 fi
 
 ################################################################################
-# STEP 3: Install and Configure X11
+# STEP 3: Install XWayland Support (X11 kept as fallback only)
 ################################################################################
 
-if ask_continue "Install X11 and Set as Default" \
-"This step installs X11 (Xorg) display server and sets it as default.
+if ask_continue "Install XWayland Support and Set Wayland as Default" \
+"This step installs X11/XWayland packages (needed for X11-only apps to run
+inside a Wayland session, and kept available as a manual fallback session),
+and sets Plasma Wayland as the default login session.
 
-Why X11 instead of Wayland for your setup?
-  - Better NVIDIA multi-monitor support
-  - No refresh rate sync issues with mixed displays (360Hz laptop + 144Hz external)
-  - More stable for gaming with external monitors
-  - Better performance in many games
+Why Wayland instead of forcing X11?
+  Measured directly on this laptop: with the external monitor's DisplayPort
+  wired straight to the RTX 3080 (not the Intel iGPU), X11's PRIME model
+  copies every frame from Intel to NVIDIA for that output (reverse offload).
+  KWin on Wayland instead scans out natively on whichever GPU actually owns
+  the connected port - measured ~33% lower idle power draw (18W vs 27W) and
+  the GPU sitting in its actual idle clock state (P8) instead of boosted
+  (P0), for the exact same idle desktop on the same external monitor.
+  Gaming and tearing were also fine in testing.
 
 We'll install:
-  - xorg-server: The X11 display server
+  - xorg-server: Needed for XWayland (X11 app compatibility under Wayland)
   - xorg-xinit: X11 initialization utilities
-  - xf86-input-libinput: Modern input driver for X11
-  - plasma-x11-session: KDE Plasma X11 session files (required!)
+  - xf86-input-libinput: Modern input driver, used if you ever pick the X11 session
+  - plasma-x11-session: KDE Plasma X11 session files - kept as a manual
+    fallback in the SDDM session picker, no longer the default
 
-Then configure SDDM (login manager) to default to X11 session.
+Then configure SDDM (login manager) to default to Plasma Wayland.
 
-You can always switch back to Wayland at login if you want to test it later."; then
+You can still select 'Plasma (X11)' at the login screen any time if you need it."; then
 
-    print_header "Step 3: Installing X11"
+    print_header "Step 3: Installing XWayland Support"
 
-    # Install X11 packages including Plasma X11 session
-    print_info "Installing X11 packages and Plasma X11 session..."
+    # Install X11/XWayland packages - plasma-x11-session stays available as
+    # a fallback session, it's just no longer the default
+    print_info "Installing XWayland and Plasma X11 fallback session..."
     sudo pacman -S --noconfirm --needed xorg-server xorg-xinit xf86-input-libinput plasma-x11-session
-    print_success "X11 packages installed"
+    print_success "XWayland packages installed"
 
-    # Set X11 as default session in SDDM
-    print_info "Configuring SDDM to default to X11 session..."
+    # Set Wayland as default session in SDDM
+    print_info "Configuring SDDM to default to Plasma Wayland..."
 
     # Create SDDM config directory if it doesn't exist
     sudo mkdir -p /etc/sddm.conf.d
 
-    # Configure SDDM to use X11 by default
+    # Configure SDDM to use Wayland by default
     cat << 'EOF' | sudo tee /etc/sddm.conf.d/default-session.conf > /dev/null
 [General]
-# Set Plasma X11 as default session
-Session=plasmax11
+# Set Plasma Wayland as default session
+Session=plasma
 EOF
 
-    # Configure GLX vendor for NVIDIA
+    # Configure GLX vendor for NVIDIA - still needed for XWayland/GLX apps
+    # and the X11 fallback session, harmless under Wayland
     print_info "Configuring GLX vendor for NVIDIA..."
     sudo mkdir -p /usr/share/glvnd/glx_vendor.d/
     cat << 'EOF' | sudo tee /usr/share/glvnd/glx_vendor.d/10-nvidia.json > /dev/null
@@ -578,11 +819,10 @@ EOF
 }
 EOF
 
-    print_success "X11 installed and set as default session"
+    print_success "XWayland installed, Plasma Wayland set as default session"
     print_info "GLX vendor configured for NVIDIA"
-    print_info "X11 Optimus configuration will be handled by EnvyControl in the next step"
-    print_info "After reboot, you'll automatically login to Plasma X11"
-    print_info "To switch to Wayland: select 'Plasma (Wayland)' at login screen"
+    print_info "After reboot, you'll automatically login to Plasma Wayland"
+    print_info "To use X11 instead: select 'Plasma (X11)' at the login screen"
 fi
 
 ################################################################################
@@ -620,25 +860,41 @@ fi
 
 if ask_continue "Install EnvyControl and Configure GPU Mode" \
 "This step installs EnvyControl, a tool for managing GPU modes on
-NVIDIA Optimus laptops (Intel + NVIDIA hybrid systems), plus the
-power-related pieces the CachyOS wiki recommends for hybrid-GPU
-laptops (https://wiki.cachyos.org/configuration/dual_gpu/).
+NVIDIA Optimus laptops (Intel + NVIDIA hybrid systems), plus a
+docked/mobile GPU mode switcher: an auto-detect service that prompts
+you when it's worth switching, and a manual toggle script for a hotkey.
 
 GPU Modes available:
   - integrated: Intel GPU only (maximum battery life)
   - hybrid:     Both GPUs, NVIDIA used on-demand via PRIME offload (balanced)
   - nvidia:     NVIDIA GPU only, always on (maximum performance, worst battery)
 
-We'll set 'hybrid' mode. This is what CachyOS recommends by default:
-the RTX 3080 stays powered off until something explicitly asks for it
-(prime-run, a Steam launch option, or KDE's 'Run using dedicated
-graphics card' right-click option), then powers back down when idle.
-Forcing 'nvidia' mode instead keeps the dGPU on permanently, which
-measurably drains battery even at idle.
+Your external monitor's DisplayPort is wired directly to the RTX 3080, not
+the Intel iGPU - measured on this laptop, so this isn't a guess. Since you
+use an external monitor 90%+ of the time, the dGPU has to be awake for
+almost all of your actual usage regardless of GPU mode, and hybrid mode
+adds PRIME reverse-offload overhead for that external output. So we'll
+set 'nvidia' mode as the default (matches your primary, docked use case):
+
+  - Docked: nvidia mode, dGPU always on, no offload overhead
+  - Mobile: hybrid mode with RTD3 (--rtd3 2), dGPU sleeps when idle
+
+Two ways to switch between them, both installed:
+  - gpu-mode-monitor.service: runs in the background, watches
+    /sys/class/drm for your external monitor connecting/disconnecting
+    (works under X11 or Wayland), and when the current mode doesn't
+    match, prompts you to switch - only once per actual plug/unplug,
+    not repeatedly.
+  - gpu-mode-toggle.sh: the same prompt-and-switch logic, callable
+    directly - bind it to a hotkey if you'd rather trigger it manually.
+
+Either way, switching asks for confirmation, uses pkexec for a GUI
+password prompt (no terminal needed), and offers to reboot immediately -
+EnvyControl mode switches always need a reboot to take effect.
 
 Also installed in this step:
   - nvidia-prime: adds the 'prime-run <program>' shortcut for forcing
-    a specific app onto the NVIDIA GPU
+    a specific app onto the NVIDIA GPU (only relevant in hybrid mode)
   - switcheroo-control: powers KDE's per-app 'Run using dedicated
     graphics card' checkbox in hybrid mode
   - thermald: Intel thermal management daemon, applies CPU power/perf
@@ -647,10 +903,10 @@ Also installed in this step:
 ⚠️  EnvyControl will manage /etc/X11/xorg.conf and related files.
     Do not manually edit these files after this step.
 
-To switch modes later:
-  sudo envycontrol -s hybrid     # Default - battery saving, PRIME offload
-  sudo envycontrol -s nvidia     # Gaming/external monitor, dGPU always on
-  sudo envycontrol -s integrated # Maximum battery, dGPU fully off
+To switch modes manually instead of using the hotkey:
+  sudo envycontrol -s nvidia          # Docked - external monitor, dGPU always on
+  sudo envycontrol -s hybrid --rtd3 2 # Mobile - battery saving, PRIME offload
+  sudo envycontrol -s integrated      # Maximum battery, dGPU fully off
   (Requires reboot after switching)"; then
 
     print_header "Step 5: Installing EnvyControl"
@@ -673,18 +929,37 @@ To switch modes later:
     sudo pacman -S --noconfirm --needed thermald
     sudo systemctl enable --now thermald.service
 
-    # Enable nvidia-drm modesetting (EnvyControl doesn't manage this)
-    print_info "Configuring NVIDIA kernel module options..."
-    echo "options nvidia-drm modeset=1" | sudo tee /etc/modprobe.d/nvidia.conf > /dev/null
-    echo "options nvidia NVreg_PreserveVideoMemoryAllocations=1" | sudo tee -a /etc/modprobe.d/nvidia.conf > /dev/null
+    # Default to nvidia mode - matches the docked/external-monitor use case
+    # that covers the vast majority of actual usage on this laptop
+    print_info "Setting GPU mode to nvidia (docked default)..."
+    sudo envycontrol -s nvidia --dm sddm
 
-    # Set hybrid mode - dGPU sleeps until something requests it via PRIME offload
-    print_info "Setting GPU mode to hybrid (PRIME offload)..."
-    sudo envycontrol -s hybrid --dm sddm
+    # Extra NVIDIA options EnvyControl doesn't set, in our own file so
+    # they survive EnvyControl rewriting nvidia.conf on future mode switches
+    print_info "Configuring additional NVIDIA kernel module options..."
+    echo "options nvidia NVreg_PreserveVideoMemoryAllocations=1" \
+        | sudo tee /etc/modprobe.d/99-nvidia-extra.conf > /dev/null
 
-    print_success "EnvyControl installed and GPU set to hybrid mode"
-    print_info "Use 'prime-run <program>' or KDE's per-app toggle to run something on the RTX 3080"
-    print_info "To switch modes: sudo envycontrol -s [integrated|hybrid|nvidia]"
+    # Install the docked/mobile GPU mode toggle script and the
+    # auto-detect monitor service that calls it
+    print_info "Installing GPU mode toggle script and monitor service..."
+    mkdir -p ~/.local/bin ~/.config/systemd/user
+    cp "$SCRIPT_DIR/scripts/gpu-mode-toggle.sh" ~/.local/bin/gpu-mode-toggle.sh
+    cp "$SCRIPT_DIR/scripts/gpu-mode-monitor.sh" ~/.local/bin/gpu-mode-monitor.sh
+    chmod +x ~/.local/bin/gpu-mode-toggle.sh ~/.local/bin/gpu-mode-monitor.sh
+    cp "$SCRIPT_DIR/scripts/gpu-mode-monitor.service" ~/.config/systemd/user/gpu-mode-monitor.service
+
+    systemctl --user daemon-reload
+    systemctl --user enable --now gpu-mode-monitor.service 2>/dev/null \
+        || print_info "gpu-mode-monitor.service will start on next login (normal before reboot)"
+
+    print_success "EnvyControl installed and GPU set to nvidia mode (docked default)"
+    print_info "Auto-detect service running: unplugging/plugging the external monitor"
+    print_info "  will now prompt you to switch GPU modes"
+    print_info "Optional hotkey: System Settings > Shortcuts > Custom Shortcuts >"
+    print_info "  New > Global Shortcut > Command/URL, set command to:"
+    print_info "  ~/.local/bin/gpu-mode-toggle.sh"
+    print_info "To switch modes manually: sudo envycontrol -s [integrated|hybrid|nvidia]"
 fi
 
 ################################################################################
@@ -743,6 +1018,8 @@ if ask_continue "Install Applications" \
   - discord: Voice, video, and text chat for communities
   - vivaldi: Power-user focused web browser (from official repo)
   - vivaldi-ffmpeg-codecs: Proprietary codec support for Vivaldi
+  - caligula: USB boot drive imaging tool, used by the Backup Configs menu
+    option to offer creating a CachyOS boot drive (from official repo)
   - bitwarden: Password manager
   - steam: Gaming platform
   - vlc: Media player
@@ -753,6 +1030,8 @@ if ask_continue "Install Applications" \
   - antigravity: Google's agentic AI IDE (from AUR)
   - razer-control-revived: Razer hardware control (fan, RGB, battery, power)
   - razer-control KDE widget: Panel widget for quick Razer hardware access
+  - handy: Offline, local speech-to-text transcription (from AUR, handy-bin)
+  - gtk-layer-shell + wtype + openblas: Handy's Linux/Wayland runtime dependencies
 
 Razer Control Revived provides:
   - Fan speed control
@@ -760,6 +1039,19 @@ Razer Control Revived provides:
   - Battery charge limit (extends battery lifespan)
   - Real-time CPU/GPU power monitoring
   - KDE Plasma widget for panel integration
+
+Handy needs a couple of Linux-specific pieces to work well under Wayland:
+  - gtk-layer-shell: required at runtime, missing/broken installs are the
+    most common cause of Handy crashing on startup
+  - wtype: needed for reliable text input on Wayland (without it, Handy
+    falls back to a less compatible method)
+  - openblas: not declared as a dependency by the handy-bin AUR package
+    at all, but Handy fails to even launch without it
+    ('error while loading shared libraries: libopenblas.so.0') - we
+    install it explicitly to work around that packaging gap
+  - Wayland has no app-level global shortcuts, so you'll need to bind one
+    yourself after install: System Settings > Shortcuts > Custom Shortcuts
+    > New > Global Shortcut > Command/URL, command: handy --toggle-transcription
 
 Note: Antigravity requires a Google account to sign in after install.
       It may occasionally show 'version outdated' - run 'yay -Syu' to update.
@@ -769,8 +1061,8 @@ This may take 15-25 minutes depending on your system and internet speed."; then
     print_header "Step 8: Installing Applications"
 
     # Define packages
-    OFFICIAL_PACKAGES="discord steam vlc ttf-ibmplex-mono-nerd vivaldi vivaldi-ffmpeg-codecs"
-    AUR_PACKAGES="bitwarden visual-studio-code-bin obsidian wezterm antigravity"
+    OFFICIAL_PACKAGES="discord steam vlc ttf-ibmplex-mono-nerd vivaldi vivaldi-ffmpeg-codecs caligula gtk-layer-shell wtype openblas"
+    AUR_PACKAGES="bitwarden visual-studio-code-bin obsidian wezterm antigravity handy-bin"
 
     # Install official packages
     print_info "Installing packages from official repositories..."
@@ -780,23 +1072,34 @@ This may take 15-25 minutes depending on your system and internet speed."; then
     print_info "Installing packages from AUR (this may take a while)..."
     yay -S --noconfirm $AUR_PACKAGES
 
-    # Install Razer Control Revived from GitHub releases tarball
+    # Install Razer Control Revived from the latest GitHub release tarball.
+    # Always grabs the latest release rather than pinning a version - this
+    # project ships frequent per-device detection fixes (device matching
+    # for composite HID interfaces is a known source of "no supported
+    # device found" bugs on some Blade models), so an old pinned version
+    # can end up permanently broken for a device that later releases fix.
     print_info "Installing Razer Control Revived..."
-    RAZER_VERSION="0.2.8"
-    RAZER_TARBALL="razer-control-0.2.7-x86_64.tar.gz"
-    RAZER_URL="https://github.com/encomjp/razer-control-revived/releases/download/v${RAZER_VERSION}/${RAZER_TARBALL}"
+    RAZER_RELEASE_JSON=$(curl -sL --connect-timeout 10 --max-time 15 \
+        "https://api.github.com/repos/encomjp/razer-control-revived/releases/latest")
+    RAZER_URL=$(grep -oP '"browser_download_url":\s*"\K[^"]*razer-control-[^"]*-x86_64\.tar\.gz' <<<"$RAZER_RELEASE_JSON" | head -1)
+    if [ -z "$RAZER_URL" ]; then
+        print_warning "Could not determine latest Razer Control Revived release, falling back to v0.3.4"
+        RAZER_URL="https://github.com/encomjp/razer-control-revived/releases/download/v0.3.4/razer-control-0.3.4-x86_64.tar.gz"
+    fi
+    RAZER_TARBALL="$(basename "$RAZER_URL")"
     RAZER_TMP="/tmp/razer-control"
 
     mkdir -p "$RAZER_TMP"
-    print_info "Downloading Razer Control Revived v${RAZER_VERSION}..."
+    print_info "Downloading Razer Control Revived ($RAZER_TARBALL)..."
     curl -L "$RAZER_URL" -o "$RAZER_TMP/$RAZER_TARBALL"
 
     print_info "Extracting and installing daemon..."
     tar xzf "$RAZER_TMP/$RAZER_TARBALL" -C "$RAZER_TMP"
+    RAZER_EXTRACTED_DIR=$(tar tzf "$RAZER_TMP/$RAZER_TARBALL" | head -1 | cut -d/ -f1)
 
     # Run install.sh as normal user - it calls sudo internally where needed
     (
-        cd "$RAZER_TMP/razer-control-0.2.7-x86_64" || exit 1
+        cd "$RAZER_TMP/$RAZER_EXTRACTED_DIR" || exit 1
         bash ./install.sh
     ) || print_warning "Razer Control daemon install had issues - may need manual install"
 
@@ -832,6 +1135,9 @@ This may take 15-25 minutes depending on your system and internet speed."; then
 
     print_success "All applications installed successfully"
     print_info "Razer Control widget: Right-click panel → Add Widgets → Search 'Razer Control'"
+    print_info "Handy needs a hotkey bound manually (Wayland has no app-level global shortcuts):"
+    print_info "  System Settings → Shortcuts → Custom Shortcuts → New → Global Shortcut →"
+    print_info "  Command/URL, set command to: handy --toggle-transcription"
 fi
 
 ################################################################################
@@ -970,6 +1276,7 @@ Configs to deploy:
   - Obsidian → ~/.config/obsidian/ (if available)
   - VS Code → ~/.config/Code/User/settings.json (if available)
   - Vivaldi → ~/.config/vivaldi/ (bookmarks/preferences only, if available)
+  - Handy → ~/.config/com.pais.handy/settings_store.json (if available)
 
 Config files must be in ./configs/ directory relative to this script."; then
 
@@ -995,6 +1302,7 @@ Config files must be in ./configs/ directory relative to this script."; then
             "kwinrc"
             "kwinrulesrc"
             "kglobalshortcutsrc"
+            "khotkeysrc"
             "plasma-localerc"
             "kscreenlockerrc"
             "plasmashellrc"
@@ -1049,6 +1357,16 @@ Config files must be in ./configs/ directory relative to this script."; then
         print_info "No Vivaldi config found, skipping"
     fi
 
+    # Deploy Handy settings
+    if [ -f "$SCRIPT_DIR/configs/handy/settings_store.json" ]; then
+        print_info "Deploying Handy settings..."
+        mkdir -p ~/.config/com.pais.handy
+        cp "$SCRIPT_DIR/configs/handy/settings_store.json" ~/.config/com.pais.handy/
+        print_success "Handy settings deployed"
+    else
+        print_info "No Handy settings found, skipping"
+    fi
+
     print_success "All configurations deployed"
 fi
 
@@ -1096,14 +1414,16 @@ echo -e "${GREEN}All steps completed successfully!${NC}\n"
 echo "Summary of what was done:"
 echo "  ✓ System updated to latest packages"
 echo "  ✓ NVIDIA drivers installed/verified"
-echo "  ✓ X11 installed and set as default display server"
+echo "  ✓ XWayland installed, Plasma Wayland set as default session (X11 available as fallback)"
 echo "  ✓ GLX vendor configured for NVIDIA"
-echo "  ✓ EnvyControl installed - GPU set to hybrid mode (PRIME offload)"
+echo "  ✓ EnvyControl installed - GPU set to nvidia mode (docked default)"
+echo "  ✓ GPU mode auto-detect service running - prompts to switch nvidia/hybrid on monitor plug/unplug"
+echo "  ✓ GPU mode toggle script installed (~/.local/bin/gpu-mode-toggle.sh) - optional hotkey for manual switching"
 echo "  ✓ switcheroo-control and thermald installed and enabled"
 echo "  ✓ Initramfs rebuilt with new configuration"
 echo "  ✓ YAY AUR helper installed"
 echo "  ✓ Gaming meta package installed"
-echo "  ✓ Applications installed (Discord, Vivaldi, Bitwarden, Steam, VLC, VS Code, Obsidian, WezTerm, Antigravity)"
+echo "  ✓ Applications installed (Discord, Vivaldi, Bitwarden, Steam, VLC, VS Code, Obsidian, WezTerm, Antigravity, Handy)"
 echo "  ✓ Razer Control Revived installed (fan, RGB, battery, power monitoring)"
 echo "  ✓ Razer Control KDE widget installed"
 echo "  ✓ Unwanted software removed (Alacritty, Firefox)"
@@ -1134,9 +1454,11 @@ print_warning "IMPORTANT: You must REBOOT for all changes to take effect!"
 echo "The post-reboot script will run automatically on your first login."
 echo ""
 echo "Useful commands after reboot:"
+echo "  ~/.local/bin/gpu-mode-toggle.sh   # Toggle nvidia <-> hybrid manually (or bind to a hotkey)"
+echo "  systemctl --user status gpu-mode-monitor  # Check the auto-detect service"
 echo "  envycontrol --query              # Check current GPU mode"
-echo "  prime-run <program>              # Force an app onto the RTX 3080"
-echo "  sudo envycontrol -s nvidia       # Switch to NVIDIA only (dGPU always on)"
+echo "  prime-run <program>              # Force an app onto the RTX 3080 (hybrid mode)"
+echo "  sudo envycontrol -s hybrid --rtd3 2  # Switch to hybrid (mobile, battery saving)"
 echo "  sudo envycontrol -s integrated   # Intel only (maximum battery)"
 echo "  nvidia-smi                       # Monitor GPU usage"
 echo "  yay -Syu                         # Update all packages"

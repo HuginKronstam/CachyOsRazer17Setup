@@ -1,0 +1,12 @@
+[Unit]
+Description=GPU Mode Monitor - prompts to switch NVIDIA/hybrid mode based on external monitor state
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/gpu-mode-monitor.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

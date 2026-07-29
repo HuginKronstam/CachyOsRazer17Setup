@@ -1,0 +1,6 @@
+{
+    "containers.containerClient": "com.microsoft.visualstudio.containers.docker",
+    "containers.orchestratorClient": "com.microsoft.visualstudio.orchestrators.dockercompose",
+    "git.autofetch": true,
+    "claudeCode.preferredLocation": "panel"
+}

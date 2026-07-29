@@ -5,8 +5,13 @@
 ```
 CachyOsRazer17Setup/
 ├── cachyos-setup.sh       # Main installation script
+├── post-reboot.sh         # Post-reboot verification, runs automatically once
 ├── README.md              # This file
 ├── .gitignore             # Protects sensitive data
+├── scripts/               # Helper scripts installed to ~/.local/bin
+│   ├── gpu-mode-toggle.sh     # Manual nvidia/hybrid switch (bind to a hotkey)
+│   ├── gpu-mode-monitor.sh    # Auto-detects external monitor, prompts to switch
+│   └── gpu-mode-monitor.service   # systemd --user unit for the monitor
 └── configs/               # Your custom configuration files
     ├── README.md          # Config management guide
     ├── wezterm/
@@ -52,7 +57,7 @@ chmod +x cachyos-setup.sh
 ```
 
 - **Option 1**: Install system (choose interactive/automatic mode)
-- **Option 2**: Backup your current configs to ./configs/
+- **Option 2**: Backup your current configs to ./configs/, and offer to create a CachyOS boot drive if a suitable USB stick is plugged in
 - **Option 3**: Upload your Obsidian vault to Proton Drive
 - **Option 4**: Download your Obsidian vault from Proton Drive (overwrites local changes that differ)
 - **Option 5**: Exit
@@ -70,7 +75,8 @@ After the script completes, reboot to apply all changes.
 ### Setup System
 - Updates all packages
 - Installs and configures NVIDIA drivers for RTX 3080 Mobile
-- Sets up X11 with proper Optimus configuration
+- Installs XWayland support, sets Plasma **Wayland** as the default session (X11 stays available as a fallback)
+- Sets GPU mode to **nvidia** by default, with an auto-detect service and a toggle script for switching to **hybrid** when mobile
 - Installs gaming optimizations
 - Installs your application suite
 - Removes unwanted pre-installed software
@@ -83,6 +89,8 @@ After the script completes, reboot to apply all changes.
 - Backs up VS Code settings
 - Backs up Vivaldi bookmarks/preferences
 - Saves everything to ./configs/ ready for git commit
+- Also checks for an attached USB drive with enough space and offers to create a
+  CachyOS boot drive with [Caligula](https://github.com/ifd3f/caligula) - see below
 
 ### Obsidian Vault Backup/Restore (Proton Drive)
 - Uses the official [Proton Drive CLI](https://proton.me/blog/proton-drive-cli) (`proton-drive-cli-bin` from the AUR)
@@ -122,15 +130,20 @@ After the script completes, reboot to apply all changes.
 
 1. **System Update** - Updates all packages to latest versions
 2. **NVIDIA Drivers** - Verifies/installs drivers for RTX 3080 Mobile
-3. **X11 Installation** - Installs X11, Plasma X11 session, and sets it as default
-4. **X11 NVIDIA Optimus Configuration** - Configures hybrid graphics properly:
-   - GLX vendor configuration for NVIDIA
-   - X11 Optimus setup (supports both Intel and NVIDIA GPUs)
+3. **XWayland Support** - Installs X11/XWayland packages (needed for X11-app
+   compatibility under Wayland, and kept as a manual fallback session), sets
+   Plasma **Wayland** as the default SDDM session
+4. **GLX/NVIDIA Configuration**:
+   - GLX vendor configuration for NVIDIA (used by XWayland apps and the X11 fallback)
    - Fixes black box rendering issues
    - Enables both laptop and external displays
-5. **GPU Configuration** - Sets GPU mode to **hybrid** (PRIME offload): the RTX
-   3080 stays powered off until an app explicitly requests it (`prime-run`,
-   a Steam launch option, or KDE's per-app toggle), then powers back down.
+5. **GPU Configuration** - Sets GPU mode to **nvidia** by default (the
+   external monitor on this laptop is wired directly to the dGPU, so it has
+   to be awake for that anyway - measured, not assumed). Installs two ways
+   to switch to **hybrid** (RTD3, dGPU sleeps when idle) for mobile/battery use:
+   - `gpu-mode-monitor.service`: watches for the external monitor
+     connecting/disconnecting and prompts you to switch
+   - `gpu-mode-toggle.sh`: same prompt-and-switch logic, for a hotkey
    Also installs `nvidia-prime`, `switcheroo-control`, and `thermald`.
 6. **Initramfs Rebuild** - Applies driver changes
 7. **YAY Installation** - Installs AUR helper
@@ -145,6 +158,8 @@ After the script completes, reboot to apply all changes.
    - Obsidian (note-taking)
    - WezTerm (terminal)
    - BlexMono Nerd Font
+   - Caligula (USB boot drive imaging, used by the Backup Configs menu option)
+   - Handy (offline speech-to-text transcription)
 10. **Remove Unwanted Software** - Removes pre-installed apps:
    - Alacritty (replaced by WezTerm)
    - Firefox (replaced by Vivaldi)
@@ -182,6 +197,30 @@ When you've customized your system and want to save those changes:
    ```
 
 Now your configs are saved and will be deployed on your next fresh install!
+
+## Creating a CachyOS Boot Drive (Caligula)
+
+Every time you run **Backup Configs**, the script also checks whether a removable
+USB drive with enough free space is currently plugged in:
+
+1. It looks up the latest CachyOS desktop release on the
+   [official mirror](https://mirror.cachyos.org/ISO/desktop/) (no download yet - just
+   the filename, size, and published SHA-256 checksum).
+2. It lists any attached removable drives that are large enough to hold it.
+3. If none are found, it silently skips - no prompt, no download.
+4. If one or more are found, it asks whether you want to create a boot drive, and
+   which drive to use if there's more than one.
+5. Only then does it download the ISO (cached in `~/.cache/cachyos-setup-iso/` and
+   verified against the published checksum, so repeat runs don't re-download it)
+   and hand off to [Caligula](https://github.com/ifd3f/caligula) to burn it.
+
+Caligula does the actual writing and shows **its own** confirmation dialog with the
+target disk's model and size before touching anything - the script never passes
+`--force`, so you always get a last chance to back out. This is a destructive,
+whole-disk write: everything on the selected drive is erased.
+
+Requires `caligula` (installed automatically in Step 8, or manually via
+`sudo pacman -S caligula` - it's in the official Arch/CachyOS repos, no AUR needed).
 
 ## Backing Up Your Obsidian Vault (Proton Drive)
 
@@ -221,38 +260,71 @@ this git repo - it goes to Proton Drive instead, end-to-end encrypted.
 If your vault moves or gets renamed, update `OBSIDIAN_VAULT_DIR` near the top of
 `cachyos-setup.sh` to match.
 
-### Why X11 Instead of Wayland?
+### Why Wayland Instead of X11?
 
-The script defaults to X11 because:
-- **Better multi-monitor support** with NVIDIA GPUs
-- **No refresh rate sync issues** between different displays (360Hz laptop + 144Hz external)
-- **More stable gaming performance** with external monitors
-- **Better game compatibility**
-- **No rendering issues** (black boxes) with NVIDIA
+Earlier versions of this script defaulted to X11, on the theory that it would
+give better NVIDIA multi-monitor behavior. That turned out to be backwards for
+this specific laptop, and it's not a guess - it was measured directly:
 
-The script configures **NVIDIA Optimus in hybrid mode (PRIME offload)** so:
-- ✅ Laptop screen works (via Intel GPU output)
-- ✅ External monitors work (via NVIDIA GPU when needed)
-- ✅ The RTX 3080 stays powered off at idle and wakes on demand - much better battery life than forcing it on permanently
-- ✅ Gaming is smooth on both laptop and external displays once launched via `prime-run`, Steam, or KDE's per-app toggle
-- ✅ No black boxes or GLX errors
+The external monitor's DisplayPort is wired straight to the RTX 3080, not the
+Intel iGPU. Under X11, PRIME's provider model copies every rendered frame from
+Intel to NVIDIA for that output (reverse offload) - the GPU sits at boosted
+clocks (P0) doing that copy work even for an idle desktop. Under Wayland, KWin
+scans out natively on whichever GPU physically owns the connected port - no
+copy step. Measured on this laptop, same idle desktop, same external monitor:
 
-If you're docked and gaming full-time and don't care about battery, you can switch to always-on NVIDIA with `sudo envycontrol -s nvidia` (see below).
+| | X11 | Wayland |
+|---|---|---|
+| Power state | P0 (boosted) | P8 (idle) |
+| Power draw | ~27W | ~18W |
+| GPU utilization | 17-26% | ~9% |
 
-You can still switch to Wayland later if you want to test it - just select "Plasma (Wayland)" at the login screen.
+Gaming and tearing were also checked directly on Wayland and found to be fine.
 
-### Switching Between X11 and Wayland
+The script now installs XWayland support (for X11-only apps and as a manual
+fallback session) but sets **Plasma Wayland** as the default.
 
-The script sets X11 as default. To switch to Wayland for testing:
+### Switching Between Wayland and X11
+
+The script sets Wayland as default. To use X11 instead (e.g. to troubleshoot,
+or if you hit an app that needs it):
 
 1. Log out
 2. Click your username at login screen
 3. Look for session selector (usually bottom-left or bottom-right corner)
 4. Choose:
-   - **Plasma (X11)** - Default, stable, best for gaming with external monitors
-   - **Plasma (Wayland)** - Modern compositor, test if you want
+   - **Plasma (Wayland)** - Default, measured lower power with your external monitor setup
+   - **Plasma (X11)** - Fallback, available if you need it
 
-**Note:** If you use Wayland with external monitors, you may experience frame rate caps or choppiness due to compositor sync issues with mixed refresh rates.
+### GPU Mode: Docked vs Mobile
+
+Two GPU modes, switched via [EnvyControl](https://github.com/bayasdev/envycontrol):
+
+- **nvidia** (default) - dGPU always on, no PRIME overhead. Matches actual
+  daily use: external monitor connected 90%+ of the time, wired to the dGPU.
+- **hybrid** - dGPU sleeps when idle (RTD3, `--rtd3 2`), wakes on demand via
+  `prime-run`/Steam/KDE's per-app toggle. For when you're mobile on battery.
+
+Both are installed by the script, along with two ways to switch:
+
+1. **Automatic** (`gpu-mode-monitor.service`, runs by default): watches
+   `/sys/class/drm` for the external monitor connecting or disconnecting -
+   works under X11 or Wayland - and if the current mode doesn't match
+   (e.g. still in `hybrid` after you've docked), prompts you to switch. It
+   only prompts once per actual plug/unplug event, not repeatedly, and it
+   never switches without confirmation.
+2. **Manual** (`~/.local/bin/gpu-mode-toggle.sh`): same prompt-and-switch
+   logic, for binding to a hotkey. Not bound automatically - Wayland has no
+   app-level global shortcuts, so add one yourself:
+   System Settings → Shortcuts → Custom Shortcuts → New → Global Shortcut →
+   Command/URL, command: `~/.local/bin/gpu-mode-toggle.sh`
+
+Either way, switching uses `pkexec` for a GUI password prompt (works from a
+hotkey with no terminal attached), and offers to reboot immediately -
+EnvyControl mode switches always need a reboot to take effect, so this can't
+be instant, but it's a couple of clicks instead of remembering the commands.
+
+Check the service any time with `systemctl --user status gpu-mode-monitor`.
 
 ### Troubleshooting
 
@@ -275,7 +347,7 @@ The script sets X11 as default. To switch to Wayland for testing:
 
 The script is well-commented and modular. To add your own software:
 
-1. Find STEP 7 in the script
+1. Find STEP 8 in the script
 2. Add packages to:
    - `OFFICIAL_PACKAGES` for official repo packages
    - `AUR_PACKAGES` for AUR packages
@@ -296,6 +368,9 @@ AUR_PACKAGES="bitwarden visual-studio-code-bin spotify"
 - **Run on dedicated GPU from KDE:** right-click the app → Properties → Advanced Options → "Run using dedicated graphics card" (needs `switcheroo-control`, installed by the script)
 - **Proton Drive sign-in:** `proton-drive auth login`
 - **List your Proton Drive files:** `proton-drive filesystem list /my-files`
+- **Switch GPU mode:** `~/.local/bin/gpu-mode-toggle.sh` (or wait for the auto-detect prompt)
+- **Check the GPU auto-detect service:** `systemctl --user status gpu-mode-monitor`
+- **Toggle Handy transcription:** `handy --toggle-transcription` (bind this to a hotkey - see [GPU Mode](#gpu-mode-docked-vs-mobile) above for the same KDE Custom Shortcuts steps)
 
 ### Steam-Specific Tips
 
@@ -310,11 +385,11 @@ For per-game settings:
 
 ### Why This Configuration is Safe
 
-- **Doesn't blacklist Intel GPU** (which can brick your system) - Intel drives the displays by default in hybrid mode
-- **Uses PRIME offload** (`prime-run`, launch options, KDE's per-app toggle) to send specific apps to NVIDIA instead of forcing it on for everything
-- **Matches the CachyOS-recommended default** for hybrid-GPU laptops - see [wiki.cachyos.org/configuration/dual_gpu](https://wiki.cachyos.org/configuration/dual_gpu/)
+- **Doesn't blacklist Intel GPU** (which can brick your system) - it's still there, still usable, `hybrid` mode uses it as primary any time you switch to it
+- **nvidia mode isn't a hack** - it's one of EnvyControl's three standard, supported modes, not a manual xorg.conf hand-edit
+- **hybrid mode is one hotkey/prompt away** - see [GPU Mode: Docked vs Mobile](#gpu-mode-docked-vs-mobile) above, for whenever the external monitor isn't in the picture
 - **DKMS drivers** automatically rebuild on kernel updates
-- **Much better idle battery life** than forcing NVIDIA on permanently - the dGPU powers down when nothing needs it
+- **The docked/mobile split matches measured behavior on this laptop**, not a generic recommendation - see [Why Wayland Instead of X11?](#why-wayland-instead-of-x11) above for the actual numbers
 
 ## Need Help?
 
