@@ -33,6 +33,20 @@ configs/vivaldi/**/*Cookies*
 configs/vivaldi/**/*Login Data*
 configs/vivaldi/**/Singleton*
 
+# Obsidian: allow-list, not deny-list. ~/.config/obsidian is an Electron
+# app data dir - almost everything in it is Chromium runtime internals
+# (Cache, Cookies, IndexedDB, Local/Session Storage, Crashpad, etc.), not
+# actual settings. An earlier backup did a blind `cp -r` of the whole
+# directory and it ended up committing an Anthropic API key that a plugin
+# had stored in IndexedDB, plus ~200 cache/cookie/storage files. Only the
+# small top-level settings/window-state files are worth keeping, so
+# ignore everything else by default - this also covers whatever new
+# internal-state folder some future Electron version adds, which a
+# deny-list of today's known-bad folders never would.
+configs/obsidian/*
+!configs/obsidian/*.json
+!configs/obsidian/obsidian.log
+
 # Backup files
 *.backup
 *.bak

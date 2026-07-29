@@ -142,11 +142,17 @@ backup_configs() {
         fi
     done
 
-    # Backup Obsidian (entire directory)
+    # Backup Obsidian (small top-level settings/window-state files only -
+    # NOT the Chromium/Electron internals like Cache, Cookies, IndexedDB,
+    # Local/Session Storage, etc. Those can hold plugin API keys and other
+    # sensitive browser-storage data - a previous blind `cp -r` here is
+    # what leaked an Anthropic API key into git history. Matches the
+    # allow-list in .gitignore.)
     if [ -d ~/.config/obsidian ]; then
-        print_info "Backing up Obsidian config..."
-        cp -r ~/.config/obsidian/* "$BACKUP_DIR/obsidian/" 2>/dev/null || true
-        print_success "Obsidian config backed up"
+        print_info "Backing up Obsidian settings (excluding Chromium/Electron internals)..."
+        find ~/.config/obsidian -maxdepth 1 -type f \( -name "*.json" -o -name "obsidian.log" \) \
+            -exec cp {} "$BACKUP_DIR/obsidian/" \;
+        print_success "Obsidian settings backed up"
     else
         print_warning "Obsidian config not found, skipping"
     fi
@@ -1027,7 +1033,6 @@ if ask_continue "Install Applications" \
   - obsidian: Note-taking and knowledge base (from AUR)
   - wezterm: GPU-accelerated terminal emulator (from AUR)
   - ttf-ibmplex-mono-nerd: BlexMono Nerd Font (for WezTerm, from official repo)
-  - antigravity: Google's agentic AI IDE (from AUR)
   - razer-control-revived: Razer hardware control (fan, RGB, battery, power)
   - razer-control KDE widget: Panel widget for quick Razer hardware access
   - handy: Offline, local speech-to-text transcription (from AUR, handy-bin)
@@ -1053,16 +1058,13 @@ Handy needs a couple of Linux-specific pieces to work well under Wayland:
     yourself after install: System Settings > Shortcuts > Custom Shortcuts
     > New > Global Shortcut > Command/URL, command: handy --toggle-transcription
 
-Note: Antigravity requires a Google account to sign in after install.
-      It may occasionally show 'version outdated' - run 'yay -Syu' to update.
-
 This may take 15-25 minutes depending on your system and internet speed."; then
 
     print_header "Step 8: Installing Applications"
 
     # Define packages
     OFFICIAL_PACKAGES="discord steam vlc ttf-ibmplex-mono-nerd vivaldi vivaldi-ffmpeg-codecs caligula gtk-layer-shell wtype openblas"
-    AUR_PACKAGES="bitwarden visual-studio-code-bin obsidian wezterm antigravity handy-bin"
+    AUR_PACKAGES="bitwarden visual-studio-code-bin obsidian wezterm handy-bin"
 
     # Install official packages
     print_info "Installing packages from official repositories..."
@@ -1273,7 +1275,7 @@ This is done LAST to ensure:
 Configs to deploy:
   - WezTerm → ~/.config/wezterm/wezterm.lua
   - KDE settings → ~/.config/ (fonts, shortcuts, defaults, etc.)
-  - Obsidian → ~/.config/obsidian/ (if available)
+  - Obsidian → ~/.config/obsidian/ (settings/window-state only, not Chromium internals)
   - VS Code → ~/.config/Code/User/settings.json (if available)
   - Vivaldi → ~/.config/vivaldi/ (bookmarks/preferences only, if available)
   - Handy → ~/.config/com.pais.handy/settings_store.json (if available)
@@ -1320,12 +1322,14 @@ Config files must be in ./configs/ directory relative to this script."; then
         print_info "No KDE configs found at $SCRIPT_DIR/configs/kde, skipping"
     fi
 
-    # Deploy Obsidian configs
+    # Deploy Obsidian settings (small top-level settings/window-state
+    # files only - matches the allow-list in .gitignore and backup_configs())
     if [ -d "$SCRIPT_DIR/configs/obsidian" ]; then
-        print_info "Deploying Obsidian configuration..."
+        print_info "Deploying Obsidian settings..."
         mkdir -p ~/.config/obsidian
-        cp -r "$SCRIPT_DIR/configs/obsidian/." ~/.config/obsidian/ 2>/dev/null || true
-        print_success "Obsidian config deployed"
+        find "$SCRIPT_DIR/configs/obsidian" -maxdepth 1 -type f \( -name "*.json" -o -name "obsidian.log" \) \
+            -exec cp {} ~/.config/obsidian/ \;
+        print_success "Obsidian settings deployed"
     else
         print_info "No Obsidian config found, skipping"
     fi
@@ -1423,7 +1427,7 @@ echo "  ✓ switcheroo-control and thermald installed and enabled"
 echo "  ✓ Initramfs rebuilt with new configuration"
 echo "  ✓ YAY AUR helper installed"
 echo "  ✓ Gaming meta package installed"
-echo "  ✓ Applications installed (Discord, Vivaldi, Bitwarden, Steam, VLC, VS Code, Obsidian, WezTerm, Antigravity, Handy)"
+echo "  ✓ Applications installed (Discord, Vivaldi, Bitwarden, Steam, VLC, VS Code, Obsidian, WezTerm, Handy)"
 echo "  ✓ Razer Control Revived installed (fan, RGB, battery, power monitoring)"
 echo "  ✓ Razer Control KDE widget installed"
 echo "  ✓ Unwanted software removed (Alacritty, Firefox)"
