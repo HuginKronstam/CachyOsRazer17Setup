@@ -22,8 +22,16 @@ CachyOsRazer17Setup/
     │   └── (configs)      # Obsidian configs
     ├── vscode/
     │   └── settings.json  # VS Code settings
-    └── vivaldi/
-        └── (configs)      # Vivaldi bookmarks/preferences (no cache/cookies/logins)
+    ├── vivaldi/
+    │   └── (configs)      # Vivaldi bookmarks/preferences (no cache/cookies/logins)
+    ├── handy/
+    │   └── settings_store.json  # Handy settings
+    ├── kwin-scripts/
+    │   └── (scripts)      # KWin scripts (e.g. Truely Maximized) - not packages, so files are backed up directly
+    ├── icons/
+    │   └── (icons)        # Custom icons (excludes auto-generated Steam/Wine cache)
+    └── wallpapers/
+        └── (images)       # Custom wallpapers
 ```
 
 ## Quick Start - Fresh Install
@@ -84,10 +92,19 @@ After the script completes, reboot to apply all changes.
 
 ### Backup Configs
 - Backs up WezTerm configuration
-- Backs up all KDE customizations (fonts, shortcuts, power, etc.)
+- Backs up all KDE customizations (fonts, shortcuts, panel layout/position, custom shortcuts, etc.)
 - Backs up Obsidian configs
 - Backs up VS Code settings
 - Backs up Vivaldi bookmarks/preferences
+- Backs up Handy settings
+- Backs up KWin scripts (e.g. Truely Maximized) - these aren't packages, so
+  their actual files have to be backed up, not just their settings
+- Backs up custom icons (~/.local/share/icons/, excluding the auto-generated
+  Steam/Wine icon cache) and wallpapers (~/.local/share/wallpapers/)
+- Checks whether a newer Razer Control Revived release is available (compares
+  against `~/.local/share/razercontrol/.installed-version`, written when Step 8
+  installs it) - useful for tracking known upstream bugs until they're fixed,
+  without having to remember to check manually
 - Saves everything to ./configs/ ready for git commit
 - Also checks for an attached USB drive with enough space and offers to create a
   CachyOS boot drive with [Caligula](https://github.com/ifd3f/caligula) - see below
@@ -132,7 +149,9 @@ After the script completes, reboot to apply all changes.
 2. **NVIDIA Drivers** - Verifies/installs drivers for RTX 3080 Mobile
 3. **XWayland Support** - Installs X11/XWayland packages (needed for X11-app
    compatibility under Wayland, and kept as a manual fallback session), sets
-   Plasma **Wayland** as the default SDDM session
+   Plasma **Wayland** as the default SDDM session, and enables NumLock on
+   the login screen (SDDM has its own separate NumLock setting, independent
+   of the Plasma session's preference)
 4. **GLX/NVIDIA Configuration**:
    - GLX vendor configuration for NVIDIA (used by XWayland apps and the X11 fallback)
    - Fixes black box rendering issues
@@ -168,6 +187,7 @@ After the script completes, reboot to apply all changes.
 12. **Verification** - Checks that NVIDIA is working
 13. **Deploy Configurations** - Deploys all your custom configs (done last to ensure proper defaults)
 14. **Proton Drive CLI** - Installs `proton-drive-cli-bin` for Obsidian vault backup/restore (see below). You still need to run `proton-drive auth login` yourself afterward - sign-in opens a browser and can't be scripted.
+15. **KDE Connect Firewall** - Opens TCP/UDP ports 1714-1764 in `ufw`. KDE Connect comes pre-installed with Plasma, but `ufw` blocks its discovery traffic by default, so pairing silently fails until these ports are opened.
 
 ### After Running
 

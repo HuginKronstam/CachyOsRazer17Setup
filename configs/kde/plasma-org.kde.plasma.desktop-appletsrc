@@ -7,10 +7,10 @@ RightButton;NoModifier=org.kde.contextmenu
 
 [Containments][23]
 activityId=
-formfactor=3
+formfactor=2
 immutability=1
 lastScreen=0
-location=6
+location=3
 plugin=org.kde.panel
 wallpaperplugin=org.kde.image
 
@@ -19,8 +19,8 @@ immutability=1
 plugin=org.kde.plasma.kickoff
 
 [Containments][23][Applets][24][Configuration]
-popupHeight=1018
-popupWidth=737
+popupHeight=1017
+popupWidth=741
 
 [Containments][23][Applets][24][Configuration][ConfigDialog]
 DialogHeight=540
@@ -28,7 +28,7 @@ DialogWidth=720
 
 [Containments][23][Applets][24][Configuration][General]
 favoritesPortedToKAstats=true
-icon=org.cachyos.hello
+icon=/home/hugin/.local/share/icons/hicolor/Custom/image-1785316383124__1_-removebg-preview.png
 systemFavorites=suspend\\,hibernate\\,reboot\\,shutdown
 
 [Containments][23][Applets][24][Configuration][Shortcuts]
@@ -38,16 +38,30 @@ global=Alt+F1
 immutability=1
 plugin=org.kde.plasma.pager
 
+[Containments][23][Applets][25][Configuration][ConfigDialog]
+DialogHeight=630
+DialogWidth=810
+
 [Containments][23][Applets][26]
 immutability=1
 plugin=org.kde.plasma.icontasks
 
+[Containments][23][Applets][26][Configuration][ConfigDialog]
+DialogHeight=630
+DialogWidth=810
+
 [Containments][23][Applets][26][Configuration][General]
+fill=false
 launchers=applications:systemsettings.desktop,preferred://filemanager,applications:steam.desktop,applications:obsidian.desktop,applications:vivaldi-stable.desktop
+tooltipControls=false
 
 [Containments][23][Applets][27]
 immutability=1
 plugin=org.kde.plasma.marginsseparator
+
+[Containments][23][Applets][27][Configuration][ConfigDialog]
+DialogHeight=630
+DialogWidth=810
 
 [Containments][23][Applets][28]
 activityId=
@@ -142,8 +156,12 @@ immutability=1
 plugin=org.kde.plasma.digitalclock
 
 [Containments][23][Applets][38][Configuration]
-popupHeight=450
+popupHeight=451
 popupWidth=560
+
+[Containments][23][Applets][38][Configuration][ConfigDialog]
+DialogHeight=630
+DialogWidth=810
 
 [Containments][23][Applets][39]
 immutability=1
@@ -161,8 +179,34 @@ popupWidth=459
 DialogHeight=630
 DialogWidth=810
 
+[Containments][23][Applets][52]
+immutability=1
+plugin=org.kde.plasma.appmenu
+
+[Containments][23][Applets][52][Configuration][ConfigDialog]
+DialogHeight=630
+DialogWidth=810
+
+[Containments][23][Applets][53]
+immutability=1
+plugin=org.kde.plasma.panelspacer
+
+[Containments][23][Applets][54]
+immutability=1
+plugin=org.kde.windowbuttons
+
+[Containments][23][Applets][54][Configuration][ConfigDialog]
+DialogHeight=1362
+DialogWidth=2560
+
+[Containments][23][Applets][54][Configuration][General]
+buttonSizePercentage=70
+buttons=4|3|5|10|2|9
+containmentType=Plasma
+visibility=ActiveMaximizedWindow
+
 [Containments][23][General]
-AppletOrder=24;25;26;49;27;28;38;39
+AppletOrder=24;26;25;52;53;27;49;28;38;39;54
 
 [Containments][4][Wallpaper][org.kde.image][General]
 Image=/usr/share/wallpapers/cachyos-wallpapers/north.png
@@ -171,8 +215,8 @@ SlidePaths=/usr/share/wallpapers/
 
 [Containments][47]
 ItemGeometries-1920x1080=
-ItemGeometries-2560x1440=
-ItemGeometriesHorizontal=
+ItemGeometries-2560x1440=Applet-56:32,976,160,288,0;Applet-55:224,1056,160,160,0;
+ItemGeometriesHorizontal=Applet-56:32,976,160,288,0;Applet-55:224,1056,160,160,0;
 activityId=38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb
 formfactor=0
 immutability=1
@@ -181,17 +225,93 @@ location=0
 plugin=org.kde.plasma.folder
 wallpaperplugin=org.kde.image
 
+[Containments][47][Applets][55]
+immutability=1
+plugin=org.kde.plasma.systemmonitor
+
+[Containments][47][Applets][55][Configuration]
+CurrentPreset=org.kde.plasma.systemmonitor
+UserBackgroundHints=ShadowBackground
+
+[Containments][47][Applets][55][Configuration][Appearance]
+Title=CPU
+chartFace=local.piechart.thermal
+showTitle=false
+updateRateLimit=0
+
+[Containments][47][Applets][55][Configuration][ConfigDialog]
+DialogHeight=630
+DialogWidth=810
+
+[Containments][47][Applets][55][Configuration][SensorColors]
+cpu/all/averageTemperature=137,61,233
+cpu/all/usage=61,174,233
+
+[Containments][47][Applets][55][Configuration][Sensors]
+highPrioritySensorIds=["cpu/all/usage"]
+totalSensors=[]
+
+[Containments][47][Applets][55][Configuration][local.piechart.thermal][General]
+rangeAuto=false
+showLegend=false
+toAngle=120
+
+[Containments][47][Applets][55][Configuration][org.kde.ksysguard.piechart][General]
+rangeAuto=false
+showLegend=false
+
+[Containments][47][Applets][56]
+immutability=1
+plugin=org.kde.plasma.systemmonitor
+
+[Containments][47][Applets][56][Configuration]
+CurrentPreset=org.kde.plasma.systemmonitor
+UserBackgroundHints=ShadowBackground
+
+[Containments][47][Applets][56][Configuration][Appearance]
+Title=Memory
+chartFace=org.kde.ksysguard.barchart
+showTitle=false
+updateRateLimit=2000
+
+[Containments][47][Applets][56][Configuration][ConfigDialog]
+DialogHeight=630
+DialogWidth=810
+
+[Containments][47][Applets][56][Configuration][SensorColors]
+memory/physical/used=61,174,233
+
+[Containments][47][Applets][56][Configuration][Sensors]
+highPrioritySensorIds=["memory/physical/used"]
+totalSensors=["memory/physical/used","memory/physical/total"]
+
+[Containments][47][Applets][56][Configuration][org.kde.ksysguard.barchart][General]
+showLegend=false
+showYAxisLabels=false
+
+[Containments][47][Applets][56][Configuration][org.kde.ksysguard.piechart][General]
+showLegend=false
+
 [Containments][47][ConfigDialog]
 DialogHeight=630
 DialogWidth=810
 
 [Containments][47][General]
-changedPositions={}
+changedPositions={"desktop:/BSG - Launcher.desktop":["2560x1440","0","19"],"desktop:/SPT - Launcher.desktop":["2560x1440","0","20"],"desktop:/SPT - Server.desktop":["2560x1440","0","21"],"desktop:/steam.desktop":["2560x1440","0","22"]}
 lastResolution=2560x1440
-positions={"1920x1080":["1","17","desktop:/SPT - Server.desktop","0","2","desktop:/steam.desktop","0","3","desktop:/SPT - Launcher.desktop","0","1","desktop:/BSG - Launcher.desktop","0","0"],"2560x1440":["1","23","desktop:/steam.desktop","0","3","desktop:/BSG - Launcher.desktop","0","0","desktop:/SPT - Server.desktop","0","2","desktop:/SPT - Launcher.desktop","0","1"]}
+positions={"1920x1080":["1","17","desktop:/SPT - Launcher.desktop","5","10","desktop:/BSG - Launcher.desktop","5","9","desktop:/steam.desktop","5","12","desktop:/SPT - Server.desktop","5","11"],"2560x1440":["1","23","desktop:/SPT - Server.desktop","0","21","desktop:/steam.desktop","0","22","desktop:/BSG - Launcher.desktop","0","19","desktop:/SPT - Launcher.desktop","0","20"]}
 sortMode=-1
 
+[Containments][47][Wallpaper][org.kde.color][General]
+Color=255,255,255
+
+[Containments][47][Wallpaper][org.kde.image][General]
+Image=file:///home/hugin/.local/share/wallpapers/Tranquil Neon City Street.png
+SlidePaths=/usr/share/wallpapers/
+
 [Containments][48]
+ItemGeometries-1920x1080=Applet-57:1184,0,208,224,0;
+ItemGeometriesHorizontal=Applet-57:1184,0,208,224,0;
 activityId=38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb
 formfactor=0
 immutability=1
@@ -200,10 +320,49 @@ location=0
 plugin=org.kde.plasma.folder
 wallpaperplugin=org.kde.image
 
+[Containments][48][Applets][57]
+immutability=1
+plugin=org.kde.plasma.systemmonitor
+
+[Containments][48][Applets][57][Configuration]
+CurrentPreset=org.kde.plasma.systemmonitor
+UserBackgroundHints=ShadowBackground
+
+[Containments][48][Applets][57][Configuration][Appearance]
+Title=GPU
+chartFace=local.piechart.gputhermal
+showTitle=false
+updateRateLimit=0
+
+[Containments][48][Applets][57][Configuration][ConfigDialog]
+DialogHeight=630
+DialogWidth=810
+
+[Containments][48][Applets][57][Configuration][SensorColors]
+gpu/all/usage=61,174,233
+
+[Containments][48][Applets][57][Configuration][Sensors]
+highPrioritySensorIds=["gpu/all/usage"]
+totalSensors=[]
+
+[Containments][48][Applets][57][Configuration][local.piechart.gputhermal][General]
+rangeAuto=false
+showLegend=false
+
+[Containments][48][Applets][57][Configuration][org.kde.ksysguard.piechart][General]
+rangeAuto=false
+showLegend=false
+toAngle=120
+
 [Containments][48][ConfigDialog]
 DialogHeight=630
 DialogWidth=810
 
+[Containments][48][Wallpaper][org.kde.image][General]
+FillMode=1
+Image=file:///home/hugin/.local/share/wallpapers/cyberpunk-anime-girl-and-cyberpunk-city-vk-1920x1080.jpg
+SlidePaths=/usr/share/wallpapers/
+
 [ScreenMapping]
 itemsOnDisabledScreens=
-screenMapping=desktop:/antigravity.desktop,0,7f92cf8a-6ffd-4984-a5b7-f5dca3027036,desktop:/steam.desktop,0,38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb,desktop:/steam.desktop,0,0c74d41f-52a7-4153-be94-35963d39defb,desktop:/BSG - Launcher.desktop,0,38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb,desktop:/steam.desktop,0,7f92cf8a-6ffd-4984-a5b7-f5dca3027036,desktop:/SPT - Launcher.desktop,0,38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb,desktop:/SPT - Server.desktop,0,38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb
+screenMapping=desktop:/BSG - Launcher.desktop,0,38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb,desktop:/SPT - Launcher.desktop,0,38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb,desktop:/steam.desktop,0,0c74d41f-52a7-4153-be94-35963d39defb,desktop:/SPT - Server.desktop,0,38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb,desktop:/steam.desktop,0,38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb,desktop:/steam.desktop,0,7f92cf8a-6ffd-4984-a5b7-f5dca3027036,desktop:/antigravity.desktop,0,7f92cf8a-6ffd-4984-a5b7-f5dca3027036

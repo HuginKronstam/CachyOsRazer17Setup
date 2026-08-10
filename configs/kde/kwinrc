@@ -3,6 +3,12 @@ Id_1=a2da6626-0cf3-4cdd-8cb4-d57002a31c18
 Number=1
 Rows=1
 
+[Plugins]
+truely-maximizedEnabled=true
+
+[Script-truely-maximized]
+shouldHideTiled=true
+
 [Tiling][1c23283f-091a-5098-b171-b7413f69b3e2]
 tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
 
@@ -47,8 +53,3 @@ tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"wi
 
 [Xwayland]
 Scale=1
-
-[org.kde.kdecoration2]
-NoPlugin=false
-library=org.kde.breeze
-theme=Breeze

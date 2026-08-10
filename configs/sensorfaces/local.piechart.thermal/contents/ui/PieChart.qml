@@ -1,0 +1,134 @@
+/*
+    SPDX-FileCopyrightText: 2019 Marco Martin <mart@kde.org>
+    SPDX-FileCopyrightText: 2019 David Edmundson <davidedmundson@kde.org>
+    SPDX-FileCopyrightText: 2019 Arjen Hiemstra <ahiemstra@heimr.nl>
+    SPDX-FileCopyrightText: 2019 Kai Uwe Broulik <kde@broulik.de>
+
+    SPDX-License-Identifier: LGPL-2.0-or-later
+*/
+
+import QtQuick
+import QtQuick.Layouts
+import org.kde.kirigami as Kirigami
+
+import org.kde.ksysguard.sensors as Sensors
+import org.kde.ksysguard.faces as Faces
+
+import org.kde.quickcharts as Charts
+import org.kde.quickcharts.controls as ChartControls
+
+import "file:///home/hugin/.local/share/plasma-widgets-shared"
+
+ChartControls.PieChartControl {
+    id: chart
+
+    property alias headingSensor: sensor.sensorId
+    property alias sensors: sensorsModel.sensors
+    property alias sensorsModel: sensorsModel
+
+    property int updateRateLimit
+
+    Layout.minimumHeight: root.formFactor == Faces.SensorFace.Vertical ? width : Kirigami.Units.gridUnit
+
+    leftPadding: 0
+    rightPadding: 0
+    topPadding: 0
+    bottomPadding: 0
+
+    readonly property real rangeFrom: root.controller.faceConfiguration.rangeFrom *
+                                      root.controller.faceConfiguration.rangeFromMultiplier
+
+    readonly property real rangeTo: root.controller.faceConfiguration.rangeTo *
+                                    root.controller.faceConfiguration.rangeToMultiplier
+
+    chart.smoothEnds: root.controller.faceConfiguration.smoothEnds
+    chart.fromAngle: root.controller.faceConfiguration.fromAngle
+    chart.toAngle: root.controller.faceConfiguration.toAngle
+    chart.thickness: Kirigami.Units.largeSpacing
+
+    range {
+        from: chart.rangeFrom
+        to: chart.rangeTo
+        automatic: root.controller.faceConfiguration.rangeAuto
+    }
+
+    chart.backgroundColor: Kirigami.ColorUtils.linearInterpolation(Kirigami.Theme.backgroundColor, Kirigami.Theme.textColor, 0.1)
+
+    Sensors.SensorDataModel {
+        id: sensorsModel
+        sensors: root.controller.highPrioritySensorIds
+        updateRateLimit: chart.updateRateLimit
+        sensorLabels: root.controller.sensorLabels
+    }
+
+    // Wedge fill is smoothed (see SmoothedValue.qml) rather than fed the raw
+    // instantaneous reading directly, to cut down on jitter.
+    Sensors.Sensor {
+        id: valueSensor
+        sensorId: root.controller.highPrioritySensorIds.length > 0 ? root.controller.highPrioritySensorIds[0] : ""
+        updateRateLimit: chart.updateRateLimit
+    }
+    SmoothedValue {
+        id: smoothedUsage
+        target: valueSensor.value || 0
+    }
+    valueSources: Charts.ArraySource {
+        array: [smoothedUsage.value]
+    }
+    chart.nameSource: Charts.ModelSource {
+        roleName: "Name";
+        model: sensorsModel;
+        indexColumns: true
+    }
+    chart.shortNameSource: Charts.ModelSource {
+        roleName: "ShortName";
+        model: sensorsModel;
+        indexColumns: true
+    }
+    // Temperature-driven color, independent of which sensors are actually
+    // plotted as wedges. Color math lives in the shared ThermalColor.qml so
+    // the CPU/GPU/Fan widgets don't each keep their own copy. Also smoothed,
+    // though temperature is naturally much less jittery than usage.
+    SmoothedValue {
+        id: smoothedTemp
+        target: tempSensor.value || 0
+    }
+    ThermalColor {
+        id: thermal
+        value: smoothedTemp.value
+    }
+
+    chart.colorSource: Charts.ArraySource {
+        array: {
+            var colors = []
+            for (var i = 0; i < root.controller.highPrioritySensorIds.length; ++i) {
+                colors.push(thermal.color)
+            }
+            return colors
+        }
+    }
+
+    Sensors.Sensor {
+        id: tempSensor
+        sensorId: "cpu/all/averageTemperature"
+        updateRateLimit: chart.updateRateLimit
+    }
+
+    Sensors.Sensor {
+        id: sensor
+        sensorId: root.controller.totalSensors.length > 0 ? root.controller.totalSensors[0] : ""
+        updateRateLimit: chart.updateRateLimit
+    }
+
+    UsedTotalDisplay {
+        anchors.centerIn: parent
+        width: Math.min(parent.width, parent.height)
+        height: width
+
+        usedSensor: root.controller.totalSensors.length > 0 ? root.controller.totalSensors[0] : ""
+        totalSensor: root.controller.totalSensors.length > 1 ? root.controller.totalSensors[1] : ""
+
+        contentMargin: chart.chart.thickness
+        updateRateLimit: chart.updateRateLimit
+    }
+}

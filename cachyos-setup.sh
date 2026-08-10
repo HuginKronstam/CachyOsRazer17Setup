@@ -107,7 +107,7 @@ backup_configs() {
     echo ""
 
     # Create backup directories
-    mkdir -p "$BACKUP_DIR"/{wezterm,kde,obsidian,vscode,vivaldi,handy}
+    mkdir -p "$BACKUP_DIR"/{wezterm,kde,obsidian,vscode,vivaldi,handy,kwin-scripts,icons,wallpapers,plasma-widgets-shared,sensorfaces,widget-scripts}
 
     # Backup WezTerm
     if [ -f ~/.config/wezterm/wezterm.lua ]; then
@@ -191,6 +191,99 @@ backup_configs() {
         print_success "Handy settings backed up"
     else
         print_warning "Handy settings not found, skipping"
+    fi
+
+    # Backup KWin scripts (e.g. Truely Maximized). These are installed via
+    # KDE's "Get New Scripts", not a pacman package, so there's nothing to
+    # reinstall from without backing up the actual files. Their enabled
+    # state and settings are separately covered by kwinrc above - this is
+    # just the script code itself.
+    if [ -d ~/.local/share/kwin/scripts ] && [ -n "$(ls -A ~/.local/share/kwin/scripts 2>/dev/null)" ]; then
+        print_info "Backing up KWin scripts..."
+        cp -r ~/.local/share/kwin/scripts/. "$BACKUP_DIR/kwin-scripts/"
+        print_success "KWin scripts backed up"
+    else
+        print_warning "No KWin scripts found, skipping"
+    fi
+
+    # Backup custom icons and wallpapers - ~/.local/share/icons and
+    # ~/.local/share/wallpapers are the standard per-user locations KDE's
+    # own icon/wallpaper pickers look in. Only the standard size-named
+    # hicolor/ subfolders (16x16, 256x256, scalable, etc.) are excluded -
+    # that's auto-regenerated Steam/Wine app icon cache. A custom folder
+    # placed directly under hicolor/ (e.g. hicolor/Custom/) is kept.
+    if [ -d ~/.local/share/icons ]; then
+        print_info "Backing up custom icons (excluding auto-generated Steam/Wine icon cache)..."
+        command -v rsync &>/dev/null || sudo pacman -S --noconfirm --needed rsync
+        rsync -a --exclude='hicolor/[0-9]*x[0-9]*/' --exclude='hicolor/scalable/' \
+            ~/.local/share/icons/ "$BACKUP_DIR/icons/" 2>/dev/null || true
+        print_success "Custom icons backed up"
+    else
+        print_warning "No custom icons directory found, skipping"
+    fi
+
+    if [ -d ~/.local/share/wallpapers ] && [ -n "$(ls -A ~/.local/share/wallpapers 2>/dev/null)" ]; then
+        print_info "Backing up custom wallpapers..."
+        cp -r ~/.local/share/wallpapers/. "$BACKUP_DIR/wallpapers/"
+        print_success "Custom wallpapers backed up"
+    else
+        print_warning "No custom wallpapers found, skipping"
+    fi
+
+    # Backup shared QML components + generated assets used by the custom
+    # System Monitor sensor faces below (thermal ring color logic, value
+    # smoothing, moon relighting)
+    if [ -d ~/.local/share/plasma-widgets-shared ] && [ -n "$(ls -A ~/.local/share/plasma-widgets-shared 2>/dev/null)" ]; then
+        print_info "Backing up shared Plasma widget QML/assets..."
+        cp -r ~/.local/share/plasma-widgets-shared/. "$BACKUP_DIR/plasma-widgets-shared/"
+        print_success "Shared Plasma widget QML/assets backed up"
+    else
+        print_warning "No shared Plasma widget QML/assets found, skipping"
+    fi
+
+    # Backup custom System Monitor sensor faces (forked KPackages for the
+    # CPU/GPU thermal ring widgets). Their placement on the desktop and
+    # sensor picks aren't stored here - see POST_INSTALL_WIDGET_SETUP.md
+    # for the manual re-add step after a restore.
+    if [ -d ~/.local/share/ksysguard/sensorfaces ] && [ -n "$(ls -A ~/.local/share/ksysguard/sensorfaces 2>/dev/null)" ]; then
+        print_info "Backing up custom System Monitor sensor faces..."
+        cp -r ~/.local/share/ksysguard/sensorfaces/. "$BACKUP_DIR/sensorfaces/"
+        print_success "Custom System Monitor sensor faces backed up"
+    else
+        print_warning "No custom System Monitor sensor faces found, skipping"
+    fi
+
+    # Backup widget setup/calibration scripts (moon relighting bake script
+    # and one-time fix script - the post-restore instructions doc lives in
+    # the Obsidian vault instead, so it's covered by the vault backup)
+    if [ -d ~/.local/share/scripts/widgets ] && [ -n "$(ls -A ~/.local/share/scripts/widgets 2>/dev/null)" ]; then
+        print_info "Backing up widget setup scripts..."
+        cp -r ~/.local/share/scripts/widgets/. "$BACKUP_DIR/widget-scripts/"
+        print_success "Widget setup scripts backed up"
+    else
+        print_warning "No widget setup scripts found, skipping"
+    fi
+
+    # Check whether a newer Razer Control Revived release has shipped -
+    # this project fixes device-specific bugs frequently (we're currently
+    # tracking one: GetBatteryHealthOptimizer crashes the entire status
+    # response on devices whose laptops.json entry lacks the "bho"
+    # feature, e.g. this laptop), so it's worth knowing when a fix lands
+    # without having to remember to check manually.
+    if [ -f ~/.local/share/razercontrol/.installed-version ]; then
+        print_info "Checking for Razer Control Revived updates..."
+        INSTALLED_RAZER_TAG=$(cat ~/.local/share/razercontrol/.installed-version 2>/dev/null)
+        LATEST_RAZER_TAG=$(curl -sL --connect-timeout 10 --max-time 15 \
+            "https://api.github.com/repos/encomjp/razer-control-revived/releases/latest" \
+            | grep -oP '"tag_name":\s*"\K[^"]+' | head -1)
+        if [ -z "$LATEST_RAZER_TAG" ]; then
+            print_warning "Could not check for Razer Control Revived updates (network/API issue)"
+        elif [ "$LATEST_RAZER_TAG" != "$INSTALLED_RAZER_TAG" ]; then
+            print_warning "Razer Control Revived $LATEST_RAZER_TAG is available (you have $INSTALLED_RAZER_TAG)"
+            print_info "Re-run Setup System, Step 8 to upgrade"
+        else
+            print_success "Razer Control Revived is up to date ($INSTALLED_RAZER_TAG)"
+        fi
     fi
 
     echo ""
@@ -787,7 +880,10 @@ We'll install:
   - plasma-x11-session: KDE Plasma X11 session files - kept as a manual
     fallback in the SDDM session picker, no longer the default
 
-Then configure SDDM (login manager) to default to Plasma Wayland.
+Then configure SDDM (login manager) to default to Plasma Wayland, and
+enable NumLock on the login screen - SDDM has its own separate NumLock
+setting (defaults to leaving it unchanged) that ignores your Plasma
+session's NumLock preference entirely unless explicitly set.
 
 You can still select 'Plasma (X11)' at the login screen any time if you need it."; then
 
@@ -805,11 +901,29 @@ You can still select 'Plasma (X11)' at the login screen any time if you need it.
     # Create SDDM config directory if it doesn't exist
     sudo mkdir -p /etc/sddm.conf.d
 
-    # Configure SDDM to use Wayland by default
+    # Configure SDDM to use Wayland by default, and match the login
+    # screen's NumLock state to the Plasma session preference (kcminputrc
+    # NumLock=0 means "on" - SDDM has its own separate NumLock setting
+    # that defaults to "none"/unchanged and ignores the Plasma one
+    # entirely unless explicitly set here).
+    #
+    # DisplayServer=x11 forces the *greeter* (login screen) specifically
+    # to run on X11 rather than native Wayland. This only affects the
+    # login screen - the actual session after login is still Wayland,
+    # controlled independently by Session=plasma below. This override is
+    # required for Numlock=on to actually work: sddm-greeter only
+    # implements NumLock via X11/XCB-XKB calls (confirmed via strings on
+    # /usr/bin/sddm-greeter-qt6 - it has no Wayland-native code path for
+    # it), so under a Wayland greeter the setting is silently ignored.
     cat << 'EOF' | sudo tee /etc/sddm.conf.d/default-session.conf > /dev/null
 [General]
+# Run the login screen itself on X11 so NumLock actually works (see
+# comment above) - does not affect the Wayland session after login
+DisplayServer=x11
 # Set Plasma Wayland as default session
 Session=plasma
+# Match the login screen's NumLock state to the Plasma session preference
+Numlock=on
 EOF
 
     # Configure GLX vendor for NVIDIA - still needed for XWayland/GLX apps
@@ -826,6 +940,7 @@ EOF
 EOF
 
     print_success "XWayland installed, Plasma Wayland set as default session"
+    print_info "NumLock enabled on the login screen"
     print_info "GLX vendor configured for NVIDIA"
     print_info "After reboot, you'll automatically login to Plasma Wayland"
     print_info "To use X11 instead: select 'Plasma (X11)' at the login screen"
@@ -906,6 +1021,12 @@ Also installed in this step:
   - thermald: Intel thermal management daemon, applies CPU power/perf
     limits before the firmware has to throttle aggressively
 
+Also disables G-SYNC negotiation retries (nvidia-modeset conceal_vrr_caps)
+on displays where it repeatedly fails to initialize - each failed retry
+forces a display re-sync, which shows up as the screen going dark and
+flashing for a moment, several times a day. Harmless to disable since
+VRR is already off in KDE for every output on this laptop anyway.
+
 ⚠️  EnvyControl will manage /etc/X11/xorg.conf and related files.
     Do not manually edit these files after this step.
 
@@ -943,8 +1064,15 @@ To switch modes manually instead of using the hotkey:
     # Extra NVIDIA options EnvyControl doesn't set, in our own file so
     # they survive EnvyControl rewriting nvidia.conf on future mode switches
     print_info "Configuring additional NVIDIA kernel module options..."
-    echo "options nvidia NVreg_PreserveVideoMemoryAllocations=1" \
-        | sudo tee /etc/modprobe.d/99-nvidia-extra.conf > /dev/null
+    cat << 'EOF' | sudo tee /etc/modprobe.d/99-nvidia-extra.conf > /dev/null
+options nvidia NVreg_PreserveVideoMemoryAllocations=1
+# Stops the driver from repeatedly retrying (and failing) G-SYNC
+# negotiation on monitors where it doesn't work - each failed retry
+# forces the display to re-sync, visible as the screen going dark and
+# flashing for a moment. VRR is already disabled in KDE for every
+# output on this laptop, so conceal_vrr_caps costs nothing right now.
+options nvidia-modeset conceal_vrr_caps=1
+EOF
 
     # Install the docked/mobile GPU mode toggle script and the
     # auto-detect monitor service that calls it
@@ -960,6 +1088,7 @@ To switch modes manually instead of using the hotkey:
         || print_info "gpu-mode-monitor.service will start on next login (normal before reboot)"
 
     print_success "EnvyControl installed and GPU set to nvidia mode (docked default)"
+    print_info "G-SYNC negotiation retries disabled (prevents periodic screen flashing)"
     print_info "Auto-detect service running: unplugging/plugging the external monitor"
     print_info "  will now prompt you to switch GPU modes"
     print_info "Optional hotkey: System Settings > Shortcuts > Custom Shortcuts >"
@@ -1033,6 +1162,9 @@ if ask_continue "Install Applications" \
   - obsidian: Note-taking and knowledge base (from AUR)
   - wezterm: GPU-accelerated terminal emulator (from AUR)
   - ttf-ibmplex-mono-nerd: BlexMono Nerd Font (for WezTerm, from official repo)
+  - plasma-applet-window-buttons: Panel widget for window buttons (from
+    official repo) - its settings are backed up via plasma-org.kde.plasma.desktop-appletsrc,
+    but the widget itself has to actually be installed for those settings to mean anything
   - razer-control-revived: Razer hardware control (fan, RGB, battery, power)
   - razer-control KDE widget: Panel widget for quick Razer hardware access
   - handy: Offline, local speech-to-text transcription (from AUR, handy-bin)
@@ -1063,7 +1195,7 @@ This may take 15-25 minutes depending on your system and internet speed."; then
     print_header "Step 8: Installing Applications"
 
     # Define packages
-    OFFICIAL_PACKAGES="discord steam vlc ttf-ibmplex-mono-nerd vivaldi vivaldi-ffmpeg-codecs caligula gtk-layer-shell wtype openblas"
+    OFFICIAL_PACKAGES="discord steam vlc ttf-ibmplex-mono-nerd vivaldi vivaldi-ffmpeg-codecs caligula gtk-layer-shell wtype openblas plasma-applet-window-buttons"
     AUR_PACKAGES="bitwarden visual-studio-code-bin obsidian wezterm handy-bin"
 
     # Install official packages
@@ -1084,9 +1216,11 @@ This may take 15-25 minutes depending on your system and internet speed."; then
     RAZER_RELEASE_JSON=$(curl -sL --connect-timeout 10 --max-time 15 \
         "https://api.github.com/repos/encomjp/razer-control-revived/releases/latest")
     RAZER_URL=$(grep -oP '"browser_download_url":\s*"\K[^"]*razer-control-[^"]*-x86_64\.tar\.gz' <<<"$RAZER_RELEASE_JSON" | head -1)
+    RAZER_TAG=$(grep -oP '"tag_name":\s*"\K[^"]+' <<<"$RAZER_RELEASE_JSON" | head -1)
     if [ -z "$RAZER_URL" ]; then
         print_warning "Could not determine latest Razer Control Revived release, falling back to v0.3.4"
         RAZER_URL="https://github.com/encomjp/razer-control-revived/releases/download/v0.3.4/razer-control-0.3.4-x86_64.tar.gz"
+        RAZER_TAG="v0.3.4"
     fi
     RAZER_TARBALL="$(basename "$RAZER_URL")"
     RAZER_TMP="/tmp/razer-control"
@@ -1104,6 +1238,11 @@ This may take 15-25 minutes depending on your system and internet speed."; then
         cd "$RAZER_TMP/$RAZER_EXTRACTED_DIR" || exit 1
         bash ./install.sh
     ) || print_warning "Razer Control daemon install had issues - may need manual install"
+
+    # Record which release we installed, so Backup Configs can later check
+    # whether a newer one has shipped (e.g. a fix for a known bug)
+    mkdir -p ~/.local/share/razercontrol
+    echo "$RAZER_TAG" > ~/.local/share/razercontrol/.installed-version
 
     # Install KDE Plasma widget from source repo
     print_info "Installing Razer Control KDE Plasma widget..."
@@ -1151,7 +1290,9 @@ if ask_continue "Remove Unwanted Software" \
 
 Removing:
   - alacritty: Default terminal (replaced by WezTerm)
-  - firefox: Default browser (replaced by Vivaldi)
+  - firefox: Default browser (replaced by Vivaldi), including both the
+    legacy (~/.mozilla) and XDG-compliant (~/.config/mozilla) profile
+    paths - which one is actually used varies by build
   - firefox-ublock-origin: Firefox extension
 
 This includes removing all config files and data for these applications
@@ -1190,7 +1331,10 @@ Note: Firefox will only be removed if Vivaldi installed successfully."; then
     # Remove Firefox (only if Vivaldi installed successfully)
     if pacman -Q vivaldi &>/dev/null; then
         print_info "Vivaldi installed successfully, removing Firefox..."
-        remove_package_with_configs "firefox" ".mozilla" ".cache/mozilla"
+        # .mozilla is the legacy profile path; this CachyOS Firefox build
+        # actually uses the XDG-compliant .config/mozilla instead - both
+        # are removed since which one is used can vary by build/version
+        remove_package_with_configs "firefox" ".mozilla" ".cache/mozilla" ".config/mozilla"
 
         # Also remove ublock-origin if present
         if pacman -Q firefox-ublock-origin &>/dev/null; then
@@ -1279,6 +1423,12 @@ Configs to deploy:
   - VS Code → ~/.config/Code/User/settings.json (if available)
   - Vivaldi → ~/.config/vivaldi/ (bookmarks/preferences only, if available)
   - Handy → ~/.config/com.pais.handy/settings_store.json (if available)
+  - KWin scripts → ~/.local/share/kwin/scripts/ (if available)
+  - Custom icons → ~/.local/share/icons/ (if available)
+  - Custom wallpapers → ~/.local/share/wallpapers/ (if available)
+  - Shared Plasma widget QML/assets → ~/.local/share/plasma-widgets-shared/ (if available)
+  - System Monitor sensor faces → ~/.local/share/ksysguard/sensorfaces/ (if available)
+  - Widget setup scripts → ~/.local/share/scripts/widgets/ (if available)
 
 Config files must be in ./configs/ directory relative to this script."; then
 
@@ -1371,6 +1521,69 @@ Config files must be in ./configs/ directory relative to this script."; then
         print_info "No Handy settings found, skipping"
     fi
 
+    # Deploy KWin scripts (e.g. Truely Maximized)
+    if [ -d "$SCRIPT_DIR/configs/kwin-scripts" ] && [ -n "$(ls -A "$SCRIPT_DIR/configs/kwin-scripts" 2>/dev/null)" ]; then
+        print_info "Deploying KWin scripts..."
+        mkdir -p ~/.local/share/kwin/scripts
+        cp -r "$SCRIPT_DIR/configs/kwin-scripts/." ~/.local/share/kwin/scripts/
+        print_success "KWin scripts deployed"
+    else
+        print_info "No KWin scripts found, skipping"
+    fi
+
+    # Deploy custom icons and wallpapers
+    if [ -d "$SCRIPT_DIR/configs/icons" ] && [ -n "$(ls -A "$SCRIPT_DIR/configs/icons" 2>/dev/null)" ]; then
+        print_info "Deploying custom icons..."
+        mkdir -p ~/.local/share/icons
+        command -v rsync &>/dev/null || sudo pacman -S --noconfirm --needed rsync
+        rsync -a "$SCRIPT_DIR/configs/icons/" ~/.local/share/icons/ 2>/dev/null || true
+        print_success "Custom icons deployed"
+    else
+        print_info "No custom icons found, skipping"
+    fi
+
+    if [ -d "$SCRIPT_DIR/configs/wallpapers" ] && [ -n "$(ls -A "$SCRIPT_DIR/configs/wallpapers" 2>/dev/null)" ]; then
+        print_info "Deploying custom wallpapers..."
+        mkdir -p ~/.local/share/wallpapers
+        cp -r "$SCRIPT_DIR/configs/wallpapers/." ~/.local/share/wallpapers/
+        print_success "Custom wallpapers deployed"
+    else
+        print_info "No custom wallpapers found, skipping"
+    fi
+
+    # Deploy shared Plasma widget QML/assets
+    if [ -d "$SCRIPT_DIR/configs/plasma-widgets-shared" ] && [ -n "$(ls -A "$SCRIPT_DIR/configs/plasma-widgets-shared" 2>/dev/null)" ]; then
+        print_info "Deploying shared Plasma widget QML/assets..."
+        mkdir -p ~/.local/share/plasma-widgets-shared
+        cp -r "$SCRIPT_DIR/configs/plasma-widgets-shared/." ~/.local/share/plasma-widgets-shared/
+        print_success "Shared Plasma widget QML/assets deployed"
+    else
+        print_info "No shared Plasma widget QML/assets found, skipping"
+    fi
+
+    # Deploy custom System Monitor sensor faces (still need to be manually
+    # re-added as widgets via the GUI afterwards - see
+    # POST_INSTALL_WIDGET_SETUP.md in the Obsidian vault)
+    if [ -d "$SCRIPT_DIR/configs/sensorfaces" ] && [ -n "$(ls -A "$SCRIPT_DIR/configs/sensorfaces" 2>/dev/null)" ]; then
+        print_info "Deploying custom System Monitor sensor faces..."
+        mkdir -p ~/.local/share/ksysguard/sensorfaces
+        cp -r "$SCRIPT_DIR/configs/sensorfaces/." ~/.local/share/ksysguard/sensorfaces/
+        print_success "Custom System Monitor sensor faces deployed"
+    else
+        print_info "No custom System Monitor sensor faces found, skipping"
+    fi
+
+    # Deploy widget setup/calibration scripts
+    if [ -d "$SCRIPT_DIR/configs/widget-scripts" ] && [ -n "$(ls -A "$SCRIPT_DIR/configs/widget-scripts" 2>/dev/null)" ]; then
+        print_info "Deploying widget setup scripts..."
+        mkdir -p ~/.local/share/scripts/widgets
+        cp -r "$SCRIPT_DIR/configs/widget-scripts/." ~/.local/share/scripts/widgets/
+        print_success "Widget setup scripts deployed"
+        print_info "See POST_INSTALL_WIDGET_SETUP.md in the Obsidian vault for the manual re-add step"
+    else
+        print_info "No widget setup scripts found, skipping"
+    fi
+
     print_success "All configurations deployed"
 fi
 
@@ -1408,6 +1621,42 @@ currently: $OBSIDIAN_VAULT_DIR"; then
 fi
 
 ################################################################################
+# STEP 14: Open Firewall Ports for KDE Connect
+################################################################################
+
+if ask_continue "Open Firewall Ports for KDE Connect" \
+"This step opens the firewall ports KDE Connect needs to discover and pair
+with your phone. KDE Connect is already installed by default (it comes
+bundled with Plasma), but ufw blocks its discovery/pairing traffic out of
+the box, so it silently fails to find any devices until these ports are
+opened.
+
+KDE Connect uses UDP/TCP ports 1714-1764 for device discovery, pairing,
+and file transfer.
+
+We'll run:
+  sudo ufw allow 1714:1764/udp
+  sudo ufw allow 1714:1764/tcp
+  sudo ufw reload
+
+These commands are safe to run again later (ufw skips duplicate rules)."; then
+
+    print_header "Step 14: Configuring Firewall for KDE Connect"
+
+    command -v kdeconnectd &>/dev/null || sudo pacman -S --noconfirm --needed kdeconnect
+
+    if command -v ufw &>/dev/null; then
+        sudo ufw allow 1714:1764/udp
+        sudo ufw allow 1714:1764/tcp
+        sudo ufw reload
+        print_success "Firewall ports 1714-1764 (TCP/UDP) opened for KDE Connect"
+    else
+        print_warning "ufw not found - skipping firewall configuration"
+        print_info "If you use a different firewall, open TCP/UDP ports 1714-1764 manually"
+    fi
+fi
+
+################################################################################
 # FINAL SUMMARY
 ################################################################################
 
@@ -1419,6 +1668,7 @@ echo "Summary of what was done:"
 echo "  ✓ System updated to latest packages"
 echo "  ✓ NVIDIA drivers installed/verified"
 echo "  ✓ XWayland installed, Plasma Wayland set as default session (X11 available as fallback)"
+echo "  ✓ NumLock enabled on the SDDM login screen"
 echo "  ✓ GLX vendor configured for NVIDIA"
 echo "  ✓ EnvyControl installed - GPU set to nvidia mode (docked default)"
 echo "  ✓ GPU mode auto-detect service running - prompts to switch nvidia/hybrid on monitor plug/unplug"
@@ -1434,6 +1684,7 @@ echo "  ✓ Unwanted software removed (Alacritty, Firefox)"
 echo "  ✓ NVIDIA power management services enabled"
 echo "  ✓ Custom configurations deployed"
 echo "  ✓ Proton Drive CLI installed (sign in with: proton-drive auth login)"
+echo "  ✓ Firewall ports opened for KDE Connect (1714-1764 TCP/UDP)"
 echo ""
 
 # Register post-reboot script to run on first login

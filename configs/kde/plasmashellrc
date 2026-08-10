@@ -1,5 +1,10 @@
+[Notification Messages]
+klipperClearHistoryAskAgain=false
+
 [PlasmaViews][Panel 23]
+alignment=1
 floating=1
+panelLengthMode=0
 panelOpacity=2
 shell=org.kde.plasma.desktop
 

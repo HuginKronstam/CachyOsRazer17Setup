@@ -1,0 +1,19 @@
+{
+    "KPackageStructure": "KSysguard/SensorFace",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "mart@kde.org",
+                "Name": "Marco Martin"
+            }
+        ],
+        "Description": "Pie chart whose wedge color follows CPU temperature (local fork of org.kde.ksysguard.piechart)",
+        "Icon": "office-chart-pie",
+        "Id": "local.piechart.thermal",
+        "License": "LGPLv2+",
+        "Name": "Pie Chart (Thermal)",
+        "Version": "1.0",
+        "Website": "https://kde.org"
+    },
+    "X-KDE-ParentApp": "org.kde.plasmashell"
+}
