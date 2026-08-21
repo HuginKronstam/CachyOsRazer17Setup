@@ -29,9 +29,13 @@ CachyOsRazer17Setup/
     ├── kwin-scripts/
     │   └── (scripts)      # KWin scripts (e.g. Truely Maximized) - not packages, so files are backed up directly
     ├── icons/
-    │   └── (icons)        # Custom icons (excludes auto-generated Steam/Wine cache)
-    └── wallpapers/
-        └── (images)       # Custom wallpapers
+    │   ├── hicolor/       # Your own custom icons only
+    │   └── DOWNLOADED-THEMES.md  # Reinstall links for downloaded icon themes (not backed up as files)
+    ├── wallpapers/
+    │   └── (images)       # Custom wallpapers
+    └── widgets/
+        ├── TODO.md        # Notes/follow-ups for the custom widgets below
+        └── HuginWB/       # Custom-built panel widget (window buttons), full plasmoid package
 ```
 
 ## Quick Start - Fresh Install
@@ -99,8 +103,16 @@ After the script completes, reboot to apply all changes.
 - Backs up Handy settings
 - Backs up KWin scripts (e.g. Truely Maximized) - these aren't packages, so
   their actual files have to be backed up, not just their settings
-- Backs up custom icons (~/.local/share/icons/, excluding the auto-generated
-  Steam/Wine icon cache) and wallpapers (~/.local/share/wallpapers/)
+- Backs up custom icons (~/.local/share/icons/hicolor/ only - your own
+  icons, not downloaded icon themes) and wallpapers (~/.local/share/wallpapers/)
+- Records which full icon themes are installed (downloaded via System
+  Settings' "Get New Icons") as a name + store.kde.org link list instead of
+  backing up their files - these can run into the hundreds of MB and are a
+  couple of clicks to reinstall, so it's not worth carrying someone else's
+  SVGs through git. The list, including which theme is active, is printed
+  during Deploy Custom Configurations as a reminder to reinstall them
+- Backs up custom-built plasmoids (~/.local/share/plasma/plasmoids/), e.g.
+  HuginWB, our own window-buttons panel widget (see configs/widgets/TODO.md)
 - Checks whether a newer Razer Control Revived release is available (compares
   against `~/.local/share/razercontrol/.installed-version`, written when Step 8
   installs it) - useful for tracking known upstream bugs until they're fixed,

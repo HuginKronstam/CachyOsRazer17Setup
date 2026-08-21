@@ -1,0 +1,21 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Andreas Kronstam",
+                "Email": "andreas.kronstam@gmail.com"
+            }
+        ],
+        "Category": "Windows and Tasks",
+        "Description": "Minimize, maximize and close buttons for the currently active window, styled to match the desktop theme",
+        "Icon": "window-close-symbolic",
+        "Id": "HuginWB",
+        "Name": "HuginWB",
+        "Version": "1.0",
+        "EnabledByDefault": true
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API": "declarativeappletscript",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-MainScript": "ui/main.qml"
+}

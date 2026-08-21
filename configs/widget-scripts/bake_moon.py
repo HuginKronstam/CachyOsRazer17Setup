@@ -1,19 +1,23 @@
 import math
 from PIL import Image
+from widget_config import load_gpu_config, hex_to_rgb
 
-# Clean, defect-fixed base (edge-trimmed + anti-aliased) - see
-# fix_moon_base.py, which only needs to run once per source photo. This
-# script just applies the directional rim-light on top of it.
-BASE_PATH = "/home/hugin/.local/share/icons/hicolor/Custom/moon-base-fixed.png"
+# Neon moon base (edge-feathered, see isolate_neon_moon.py). This script
+# just applies the directional rim-light on top of it.
+BASE_PATH = "/home/hugin/.local/share/icons/hicolor/Custom/neon-moon-base.png"
 OUT_PATH = "/home/hugin/.local/share/plasma-widgets-shared/moon_gpu_lit.png"
+
+cfg = load_gpu_config()
 
 moon = Image.open(BASE_PATH).convert("RGBA")
 W, H = moon.size
 
-angle = math.radians(135)  # full diagonal southwest, picked from comparison
+# lightAnglePie is in Charts.PieChart convention (0=top/12 o'clock,
+# clockwise) - this script's sphere-lighting math uses plain image coords
+# (0=right, clockwise, Y-down), so convert: image_angle = pie_angle - 90.
+angle = math.radians(cfg["lightAnglePie"] - 90)
 lx, ly = math.cos(angle), math.sin(angle)
-light_color = (205 / 255, 29 / 255, 113 / 255)
-lr, lg, lb = light_color
+lr, lg, lb = (c / 255 for c in hex_to_rgb(cfg["lightColorHex"]))
 
 px = moon.load()
 R = min(W, H) / 2

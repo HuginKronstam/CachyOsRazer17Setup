@@ -3,6 +3,9 @@ Id_1=a2da6626-0cf3-4cdd-8cb4-d57002a31c18
 Number=1
 Rows=1
 
+[NightColor]
+Mode=Constant
+
 [Plugins]
 truely-maximizedEnabled=true
 
@@ -53,3 +56,7 @@ tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"wi
 
 [Xwayland]
 Scale=1
+XwaylandEisNoPromptApps=handy
+
+[org.kde.kdecoration2]
+library=org.kde.kwin.aurorae.v2

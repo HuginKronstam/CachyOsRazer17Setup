@@ -107,7 +107,7 @@ backup_configs() {
     echo ""
 
     # Create backup directories
-    mkdir -p "$BACKUP_DIR"/{wezterm,kde,obsidian,vscode,vivaldi,handy,kwin-scripts,icons,wallpapers,plasma-widgets-shared,sensorfaces,widget-scripts}
+    mkdir -p "$BACKUP_DIR"/{wezterm,kde,obsidian,vscode,vivaldi,handy,kwin-scripts,icons,wallpapers,plasma-widgets-shared,sensorfaces,widget-scripts,widget-source,widgets}
 
     # Backup WezTerm
     if [ -f ~/.config/wezterm/wezterm.lua ]; then
@@ -206,20 +206,85 @@ backup_configs() {
         print_warning "No KWin scripts found, skipping"
     fi
 
-    # Backup custom icons and wallpapers - ~/.local/share/icons and
-    # ~/.local/share/wallpapers are the standard per-user locations KDE's
-    # own icon/wallpaper pickers look in. Only the standard size-named
-    # hicolor/ subfolders (16x16, 256x256, scalable, etc.) are excluded -
-    # that's auto-regenerated Steam/Wine app icon cache. A custom folder
-    # placed directly under hicolor/ (e.g. hicolor/Custom/) is kept.
-    if [ -d ~/.local/share/icons ]; then
-        print_info "Backing up custom icons (excluding auto-generated Steam/Wine icon cache)..."
+    # Backup custom icons - ~/.local/share/icons/hicolor is the standard
+    # per-user location for your OWN icons (e.g. hicolor/Custom/). Only the
+    # standard size-named hicolor/ subfolders (16x16, 256x256, scalable,
+    # etc.) are excluded - that's auto-regenerated Steam/Wine app icon
+    # cache. Full downloaded icon THEMES (candy-icons, Infinity-Dark-Icons,
+    # etc. - installed via System Settings' "Get New Icons" dialog) are
+    # deliberately NOT copied here: they're third-party content that can
+    # run into the hundreds of MB and are trivially reinstallable, so only
+    # a lightweight reference list is saved instead (see below).
+    if [ -d ~/.local/share/icons/hicolor ]; then
+        print_info "Backing up custom icons (hicolor only)..."
         command -v rsync &>/dev/null || sudo pacman -S --noconfirm --needed rsync
-        rsync -a --exclude='hicolor/[0-9]*x[0-9]*/' --exclude='hicolor/scalable/' \
-            ~/.local/share/icons/ "$BACKUP_DIR/icons/" 2>/dev/null || true
-        print_success "Custom icons backed up"
+        rsync -a --exclude='[0-9]*x[0-9]*/' --exclude='scalable/' \
+            ~/.local/share/icons/hicolor/ "$BACKUP_DIR/icons/hicolor/" 2>/dev/null || true
+        print_success "Custom icons (hicolor) backed up"
     else
         print_warning "No custom icons directory found, skipping"
+    fi
+
+    # Record which full icon themes are installed (downloaded via KDE
+    # Store's "Get New Icons" dialog) as a lightweight reference instead of
+    # backing up their files - reinstalling is a couple of clicks in
+    # System Settings, and doing that beats carrying hundreds of MB of
+    # someone else's SVGs through git. Cross-references KNewStuff's own
+    # install registry (~/.local/share/knewstuff3/icons.knsregistry) for
+    # the name/homepage KDE Store used, when available.
+    if [ -d ~/.local/share/icons ]; then
+        # The user's own kdeglobals takes precedence, but global themes set
+        # the icon theme via the kdedefaults layer instead (confirmed: this
+        # machine's active theme only showed up there, not in kdeglobals).
+        ACTIVE_ICON_THEME=$(grep -A5 "^\[Icons\]" ~/.config/kdeglobals 2>/dev/null | grep "^Theme=" | head -1 | cut -d= -f2)
+        if [ -z "$ACTIVE_ICON_THEME" ]; then
+            ACTIVE_ICON_THEME=$(grep -A5 "^\[Icons\]" ~/.config/kdedefaults/kdeglobals 2>/dev/null | grep "^Theme=" | head -1 | cut -d= -f2)
+        fi
+        python3 - "$ACTIVE_ICON_THEME" > "$BACKUP_DIR/icons/DOWNLOADED-THEMES.md" << 'PYEOF'
+import sys, os, glob
+import xml.etree.ElementTree as ET
+
+active = sys.argv[1] if len(sys.argv) > 1 else ""
+icons_dir = os.path.expanduser("~/.local/share/icons")
+registry_path = os.path.expanduser("~/.local/share/knewstuff3/icons.knsregistry")
+
+entries = {}
+if os.path.exists(registry_path):
+    try:
+        tree = ET.parse(registry_path)
+        for stuff in tree.getroot().findall("stuff"):
+            installed = stuff.findtext("installedfile", "")
+            name = stuff.findtext("name", "")
+            homepage = stuff.findtext("homepage", "")
+            folder = installed.rstrip("/*").split("/")[-1]
+            if folder:
+                entries[folder] = (name, homepage)
+    except ET.ParseError:
+        pass
+
+print("# Downloaded icon themes\n")
+print("Not backed up as files (can be hundreds of MB, trivially reinstallable).")
+print("Reinstall via System Settings > Appearance > Icons > Get New Icons,")
+print("search for the name below, or open the homepage link directly. Then")
+print("set the active one the same way (or in System Settings > Icons).\n")
+
+found_any = False
+for path in sorted(glob.glob(os.path.join(icons_dir, "*"))):
+    folder = os.path.basename(path)
+    if folder == "hicolor" or not os.path.isdir(path):
+        continue
+    found_any = True
+    marker = " (active)" if folder == active else ""
+    if folder in entries:
+        name, homepage = entries[folder]
+        print(f"- **{name or folder}**{marker}: {homepage}")
+    else:
+        print(f"- **{folder}**{marker}: source unknown, check store.kde.org or wherever you originally got it")
+
+if not found_any:
+    print("(none found)")
+PYEOF
+        print_success "Downloaded icon theme list saved (files not backed up)"
     fi
 
     if [ -d ~/.local/share/wallpapers ] && [ -n "$(ls -A ~/.local/share/wallpapers 2>/dev/null)" ]; then
@@ -253,15 +318,40 @@ backup_configs() {
         print_warning "No custom System Monitor sensor faces found, skipping"
     fi
 
-    # Backup widget setup/calibration scripts (moon relighting bake script
-    # and one-time fix script - the post-restore instructions doc lives in
+    # Backup widget setup/calibration scripts (moon relighting bake scripts
+    # and shared config loader - the post-restore instructions doc lives in
     # the Obsidian vault instead, so it's covered by the vault backup)
     if [ -d ~/.local/share/scripts/widgets ] && [ -n "$(ls -A ~/.local/share/scripts/widgets 2>/dev/null)" ]; then
         print_info "Backing up widget setup scripts..."
-        cp -r ~/.local/share/scripts/widgets/. "$BACKUP_DIR/widget-scripts/"
+        rsync -a --exclude='__pycache__/' \
+            ~/.local/share/scripts/widgets/ "$BACKUP_DIR/widget-scripts/" 2>/dev/null || true
         print_success "Widget setup scripts backed up"
     else
         print_warning "No widget setup scripts found, skipping"
+    fi
+
+    # Backup the raw source photo for the neon moon widget - isolate_neon_moon.py
+    # reads this to (re)produce neon-moon-base.png. The baked output is
+    # already backed up via the icons folder, but keeping the source lets
+    # the crop/feather be re-tuned later without needing to re-source the photo.
+    if [ -f ~/Pictures/neon-moon-dreams-stockcake.jpg ]; then
+        print_info "Backing up neon moon source photo..."
+        cp ~/Pictures/neon-moon-dreams-stockcake.jpg "$BACKUP_DIR/widget-source/"
+        print_success "Neon moon source photo backed up"
+    else
+        print_warning "Neon moon source photo not found, skipping"
+    fi
+
+    # Backup custom-built plasmoids (full packages, not just the shared
+    # QML/scripts above) - each lives in its own subfolder under widgets/,
+    # named to match its plasmoid id under ~/.local/share/plasma/plasmoids/
+    if [ -d ~/.local/share/plasma/plasmoids/HuginWB ]; then
+        print_info "Backing up HuginWB widget..."
+        mkdir -p "$BACKUP_DIR/widgets/HuginWB"
+        cp -r ~/.local/share/plasma/plasmoids/HuginWB/. "$BACKUP_DIR/widgets/HuginWB/"
+        print_success "HuginWB widget backed up"
+    else
+        print_warning "HuginWB widget not found, skipping"
     fi
 
     # Check whether a newer Razer Control Revived release has shipped -
@@ -1162,9 +1252,6 @@ if ask_continue "Install Applications" \
   - obsidian: Note-taking and knowledge base (from AUR)
   - wezterm: GPU-accelerated terminal emulator (from AUR)
   - ttf-ibmplex-mono-nerd: BlexMono Nerd Font (for WezTerm, from official repo)
-  - plasma-applet-window-buttons: Panel widget for window buttons (from
-    official repo) - its settings are backed up via plasma-org.kde.plasma.desktop-appletsrc,
-    but the widget itself has to actually be installed for those settings to mean anything
   - razer-control-revived: Razer hardware control (fan, RGB, battery, power)
   - razer-control KDE widget: Panel widget for quick Razer hardware access
   - handy: Offline, local speech-to-text transcription (from AUR, handy-bin)
@@ -1195,7 +1282,7 @@ This may take 15-25 minutes depending on your system and internet speed."; then
     print_header "Step 8: Installing Applications"
 
     # Define packages
-    OFFICIAL_PACKAGES="discord steam vlc ttf-ibmplex-mono-nerd vivaldi vivaldi-ffmpeg-codecs caligula gtk-layer-shell wtype openblas plasma-applet-window-buttons"
+    OFFICIAL_PACKAGES="discord steam vlc ttf-ibmplex-mono-nerd vivaldi vivaldi-ffmpeg-codecs caligula gtk-layer-shell wtype openblas"
     AUR_PACKAGES="bitwarden visual-studio-code-bin obsidian wezterm handy-bin"
 
     # Install official packages
@@ -1429,6 +1516,8 @@ Configs to deploy:
   - Shared Plasma widget QML/assets → ~/.local/share/plasma-widgets-shared/ (if available)
   - System Monitor sensor faces → ~/.local/share/ksysguard/sensorfaces/ (if available)
   - Widget setup scripts → ~/.local/share/scripts/widgets/ (if available)
+  - Neon moon source photo → ~/Pictures/ (if available)
+  - HuginWB widget → ~/.local/share/plasma/plasmoids/HuginWB/ (if available)
 
 Config files must be in ./configs/ directory relative to this script."; then
 
@@ -1531,15 +1620,23 @@ Config files must be in ./configs/ directory relative to this script."; then
         print_info "No KWin scripts found, skipping"
     fi
 
-    # Deploy custom icons and wallpapers
-    if [ -d "$SCRIPT_DIR/configs/icons" ] && [ -n "$(ls -A "$SCRIPT_DIR/configs/icons" 2>/dev/null)" ]; then
+    # Deploy custom icons (hicolor only - see below for downloaded themes)
+    if [ -d "$SCRIPT_DIR/configs/icons/hicolor" ] && [ -n "$(ls -A "$SCRIPT_DIR/configs/icons/hicolor" 2>/dev/null)" ]; then
         print_info "Deploying custom icons..."
-        mkdir -p ~/.local/share/icons
+        mkdir -p ~/.local/share/icons/hicolor
         command -v rsync &>/dev/null || sudo pacman -S --noconfirm --needed rsync
-        rsync -a "$SCRIPT_DIR/configs/icons/" ~/.local/share/icons/ 2>/dev/null || true
+        rsync -a "$SCRIPT_DIR/configs/icons/hicolor/" ~/.local/share/icons/hicolor/ 2>/dev/null || true
         print_success "Custom icons deployed"
     else
         print_info "No custom icons found, skipping"
+    fi
+
+    # Downloaded icon themes aren't backed up as files (see backup_configs) -
+    # print the reference list so they can be reinstalled via System
+    # Settings' "Get New Icons" dialog instead
+    if [ -f "$SCRIPT_DIR/configs/icons/DOWNLOADED-THEMES.md" ]; then
+        print_info "Downloaded icon themes to reinstall manually:"
+        cat "$SCRIPT_DIR/configs/icons/DOWNLOADED-THEMES.md"
     fi
 
     if [ -d "$SCRIPT_DIR/configs/wallpapers" ] && [ -n "$(ls -A "$SCRIPT_DIR/configs/wallpapers" 2>/dev/null)" ]; then
@@ -1582,6 +1679,27 @@ Config files must be in ./configs/ directory relative to this script."; then
         print_info "See POST_INSTALL_WIDGET_SETUP.md in the Obsidian vault for the manual re-add step"
     else
         print_info "No widget setup scripts found, skipping"
+    fi
+
+    # Deploy neon moon source photo
+    if [ -f "$SCRIPT_DIR/configs/widget-source/neon-moon-dreams-stockcake.jpg" ]; then
+        print_info "Deploying neon moon source photo..."
+        mkdir -p ~/Pictures
+        cp "$SCRIPT_DIR/configs/widget-source/neon-moon-dreams-stockcake.jpg" ~/Pictures/
+        print_success "Neon moon source photo deployed"
+    else
+        print_info "No neon moon source photo found, skipping"
+    fi
+
+    # Deploy custom-built plasmoids
+    if [ -d "$SCRIPT_DIR/configs/widgets/HuginWB" ] && [ -n "$(ls -A "$SCRIPT_DIR/configs/widgets/HuginWB" 2>/dev/null)" ]; then
+        print_info "Deploying HuginWB widget..."
+        mkdir -p ~/.local/share/plasma/plasmoids/HuginWB
+        cp -r "$SCRIPT_DIR/configs/widgets/HuginWB/." ~/.local/share/plasma/plasmoids/HuginWB/
+        print_success "HuginWB widget deployed"
+        print_info "Restart plasmashell (or log out/in) to pick it up, then add it to your panel via Add Widgets"
+    else
+        print_info "No HuginWB widget found, skipping"
     fi
 
     print_success "All configurations deployed"

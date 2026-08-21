@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0 http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+  <kcfgfile name="" />
+
+  <group name="General">
+    <entry name="visibilityPolicy" type="String">
+      <default>ActiveWindow</default>
+      <!-- Allowed values: AlwaysVisible, ActiveWindow, ActiveMaximizedWindow.
+           No config UI ships in v1: edit the default above before install,
+           or set it per-instance afterward with kwriteconfig6 (see
+           POST_INSTALL notes), then restart plasmashell or remove/re-add
+           the widget. -->
+      <label>When the widget should be visible</label>
+    </entry>
+
+    <!-- .local override: all empty by default (pure theme-derived look).
+         Set any of these with kwriteconfig6, same mechanism as
+         visibilityPolicy, to override that button's icon or color without
+         touching this plasmoid's own files. Icon names must be valid
+         icon-theme names, same requirement as window-minimize-symbolic;
+         colors are hex rrggbb or aarrggbb. -->
+    <entry name="overrideMinimizeIcon" type="String">
+      <default></default>
+      <label>Icon override for the minimize button</label>
+    </entry>
+    <entry name="overrideMinimizeColor" type="String">
+      <default></default>
+      <label>Color override for the minimize button</label>
+    </entry>
+    <entry name="overrideMaximizeIcon" type="String">
+      <default></default>
+      <label>Icon override for the maximize button</label>
+    </entry>
+    <entry name="overrideRestoreIcon" type="String">
+      <default></default>
+      <label>Icon override for the maximize button when the window is already maximized</label>
+    </entry>
+    <entry name="overrideMaximizeColor" type="String">
+      <default></default>
+      <label>Color override for the maximize/restore button</label>
+    </entry>
+    <entry name="overrideCloseIcon" type="String">
+      <default></default>
+      <label>Icon override for the close button</label>
+    </entry>
+    <entry name="overrideCloseColor" type="String">
+      <default></default>
+      <label>Color override for the close button</label>
+    </entry>
+  </group>
+</kcfg>

@@ -19,6 +19,7 @@ import org.kde.quickcharts.controls as ChartControls
 import QtQuick.Effects
 
 import "file:///home/hugin/.local/share/plasma-widgets-shared"
+import "file:///home/hugin/.local/share/plasma-widgets-shared/gpu_widget_config.js" as GpuConfigModule
 
 ChartControls.PieChartControl {
     id: chart
@@ -28,6 +29,26 @@ ChartControls.PieChartControl {
     property alias sensorsModel: sensorsModel
 
     property int updateRateLimit
+
+    // Single source of truth for values shared with the bake scripts
+    // (bake_moon.py, bake_gpu_overlay.py) - both sides read the same file
+    // instead of hand-copied constants that drift out of sync silently. A
+    // script-module import (not XMLHttpRequest - local-file XHR is disabled
+    // by default in Qt6) - see gpu_widget_config.js and
+    // ~/.local/share/scripts/widgets/widget_config.py, which parses the
+    // same file on the Python side.
+    readonly property var gpuConfig: GpuConfigModule.gpuWidgetConfig
+
+    // How much bigger the moon renders than the ring's own bounding box -
+    // referenced by both the background Image and the overlay Image below.
+    readonly property real moonFillFactor: gpuConfig.moonFillFactor
+    // Ring thickness as a fraction of the ring's own diameter, matching
+    // exactly how bake_gpu_overlay.py computes its bevel band - so resizing
+    // the widget scales the wedge and the baked overlay together instead of
+    // one being a fixed theme-based pixel value (chart.thickness used to be
+    // Kirigami.Units.largeSpacing) and the other a proportional guess.
+    readonly property real ringThicknessRatio: gpuConfig.ringThicknessRatio
+
 
     Layout.minimumHeight: root.formFactor == Faces.SensorFace.Vertical ? width : Kirigami.Units.gridUnit
 
@@ -45,7 +66,13 @@ ChartControls.PieChartControl {
     chart.smoothEnds: root.controller.faceConfiguration.smoothEnds
     chart.fromAngle: root.controller.faceConfiguration.fromAngle
     chart.toAngle: root.controller.faceConfiguration.toAngle
-    chart.thickness: Kirigami.Units.largeSpacing
+    // Unqualified (not "chart.width" etc.) - within the root's own top-level
+    // bindings, "chart" resolves to the inherited chart:pie alias property
+    // (shadowing our own id), not our root id, so "chart.ringThicknessRatio"
+    // silently returned undefined (pie has no such property) and broke the
+    // wedge's thickness entirely. Bare property names resolve directly to
+    // our own root without that ambiguity.
+    chart.thickness: Math.min(width, height) * ringThicknessRatio
 
     range {
         from: chart.rangeFrom
@@ -69,15 +96,21 @@ ChartControls.PieChartControl {
     // more tuning to be reliable - baking a calibrated result is simpler and
     // was the agreed tradeoff for now. Rerun bake_moon.py with new angle/
     // color values if you change wallpaper or want to retune the look.
+    //
+    // Deliberately smaller than the ring (moonImageScale < 1, decoupled from
+    // the overlay's own moonFillFactor) - the moon reads as a distinct
+    // glowing sphere with the ring floating around it as a halo/reticle,
+    // rather than the ring sitting on the moon's surface. That was the
+    // original design for the old realistic moon photo, but this stylized
+    // neon-glow moon already does its own "edge glow" as part of the art,
+    // so stacking the ring's bevel glow on the same edge just made them
+    // compete - separating them reads cleaner.
     background: Image {
         source: "file:///home/hugin/.local/share/plasma-widgets-shared/moon_gpu_lit.png"
         fillMode: Image.PreserveAspectFit
         anchors.centerIn: parent
-        // >1.0 so the moon extends past the ring's outer edge instead of
-        // sitting slightly inside it - the ring should read as sitting on
-        // the moon's face, not the moon peeking out from behind the ring.
-        width: parent.width * 1.15
-        height: parent.height * 1.15
+        width: parent.width * chart.gpuConfig.moonImageScale
+        height: parent.height * chart.gpuConfig.moonImageScale
     }
 
     Sensors.SensorDataModel {
@@ -122,12 +155,14 @@ ChartControls.PieChartControl {
     ThermalColor {
         id: thermal
         value: smoothedTemp.value
-        // Overriding the shared blue->red default: cyan-blue sampled from
-        // the wallpaper's neon skyline, shifting to the same pink used for
-        // the moon's rim-light at the hottest end - keeps this widget's
-        // whole palette tied to its actual background.
-        coldColor: "#04CEFC"
-        hotColor: "#CD1D71"
+        // Overriding the shared blue->red default - cyan-blue sampled from
+        // the wallpaper's neon skyline, shifting to orange at the hottest
+        // end (not pink - pink is the moon's own rim-light color, and using
+        // it here made the hot wedge blend into the moon's glow instead of
+        // reading as a distinct object). Values from gpuConfig, not
+        // hardcoded, same single-source-of-truth reasoning as moonFillFactor.
+        coldColor: chart.gpuConfig.coldColorHex
+        hotColor: chart.gpuConfig.hotColorHex
     }
 
     chart.colorSource: Charts.ArraySource {
@@ -152,68 +187,42 @@ ChartControls.PieChartControl {
         updateRateLimit: chart.updateRateLimit
     }
 
-    // Carved-groove look: a light/dark stroke pair straddling each of the
-    // ring's true edges (outer and inner), instead of one flat border - so
-    // it reads as a channel sunk into the moon's surface rather than a
-    // disc pasted on top. Thin and only barely anti-aliased, not blurred,
-    // since a real groove has a crisp edge - the shading does the work.
-    Item {
-        id: ringBorderLayer
-        anchors.fill: parent
-        visible: false
-
-        readonly property real outerD: Math.min(parent.width, parent.height)
-        readonly property real innerD: outerD - 2 * chart.chart.thickness
-        readonly property real strokeW: 1.2
-
-        // Outer wall of the groove: highlight just outside the edge, shadow
-        // just inside it.
-        Rectangle {
-            anchors.centerIn: parent
-            width: ringBorderLayer.outerD + ringBorderLayer.strokeW
-            height: width
-            radius: width / 2
-            color: "transparent"
-            border.color: Qt.rgba(1, 1, 1, 0.35)
-            border.width: ringBorderLayer.strokeW
-        }
-        Rectangle {
-            anchors.centerIn: parent
-            width: ringBorderLayer.outerD - ringBorderLayer.strokeW
-            height: width
-            radius: width / 2
-            color: "transparent"
-            border.color: Qt.rgba(0, 0, 0, 0.55)
-            border.width: ringBorderLayer.strokeW
-        }
-        // Inner wall of the groove: shadow just outside the edge (deeper
-        // into the ring band), highlight just inside it (back up onto the
-        // moon's surface).
-        Rectangle {
-            anchors.centerIn: parent
-            width: ringBorderLayer.innerD + ringBorderLayer.strokeW
-            height: width
-            radius: width / 2
-            color: "transparent"
-            border.color: Qt.rgba(0, 0, 0, 0.55)
-            border.width: ringBorderLayer.strokeW
-        }
-        Rectangle {
-            anchors.centerIn: parent
-            width: ringBorderLayer.innerD - ringBorderLayer.strokeW
-            height: width
-            radius: width / 2
-            color: "transparent"
-            border.color: Qt.rgba(1, 1, 1, 0.35)
-            border.width: ringBorderLayer.strokeW
-        }
+    // All the structural/decorative bezel elements (highlight/shadow bevel,
+    // end caps at the gap, tick marks, mounting brackets) are baked into
+    // one static overlay PNG (see .../scripts/widgets/bake_gpu_overlay.py)
+    // rather than built from QML shapes - none of it needs to track live
+    // sensor data, only the same fixed ring/moon geometry relationship the
+    // moon image itself uses (moonFillFactor), and fighting QML rotation/
+    // clipping math for all of this repeatedly cost far more time than it
+    // was worth. Trade-off: this is calibrated against the gap
+    // (fromAngle/toAngle) that was configured when it was baked - rerun the
+    // script if you reconfigure the gap significantly.
+    Image {
+        id: gpuOverlay
+        source: "file:///home/hugin/.local/share/plasma-widgets-shared/gpu_overlay.png"
+        fillMode: Image.PreserveAspectFit
+        anchors.centerIn: parent
+        width: parent.width * chart.moonFillFactor
+        height: parent.height * chart.moonFillFactor
     }
     MultiEffect {
-        anchors.fill: ringBorderLayer
-        source: ringBorderLayer
-        blurEnabled: true
-        blur: 0.04
-        blurMax: 3
+        anchors.fill: gpuOverlay
+        source: gpuOverlay
+
+        // Cast a real shadow onto the moon below the bezel, offset toward
+        // northeast (opposite the 225deg/southwest light) - the key cue
+        // that sells "this is a physical bezel mounted above the surface"
+        // rather than a flat graphic sitting on it. (A baked-in shadow was
+        // tried first - Image.transform's AFFINE offset produced real
+        // artifacts, a bitten-out chunk of the moon's edge and color
+        // bleeding past its silhouette - this live version is simpler and
+        // doesn't have that problem.)
+        shadowEnabled: true
+        shadowColor: Qt.rgba(0, 0, 0, 0.7)
+        shadowOpacity: 0.7
+        shadowBlur: 0.4
+        shadowHorizontalOffset: 3
+        shadowVerticalOffset: -3
     }
 
     UsedTotalDisplay {
