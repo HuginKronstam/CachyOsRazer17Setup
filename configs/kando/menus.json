@@ -1,0 +1,397 @@
+{
+  "version": "3.0.0-beta.1",
+  "menus": [
+    {
+      "root": {
+        "name": "Zen",
+        "icon": "self_improvement",
+        "iconTheme": "material-symbols-rounded",
+        "type": "root",
+        "activateWorkflow": {
+          "quickSelectKey": "Escape",
+          "actions": [
+            {
+              "type": "close-menu"
+            }
+          ]
+        },
+        "children": [
+          {
+            "name": "Scripts",
+            "icon": "terminal",
+            "iconTheme": "material-symbols-rounded",
+            "type": "submenu",
+            "activateWorkflow": {
+              "quickSelectKey": "Backspace",
+              "actions": [
+                {
+                  "type": "close-submenu"
+                }
+              ]
+            },
+            "children": [
+              {
+                "name": "WezTerm",
+                "icon": "org.wezfurlong.wezterm",
+                "iconTheme": "system",
+                "type": "button",
+                "selectWorkflow": {
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "wezterm start --cwd /home/hugin/cachyosrazer17setup -- bash cachyos-setup.sh",
+                      "detached": false,
+                      "isolated": false
+                    },
+                    {
+                      "type": "close-menu"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "Find app icon",
+                "icon": "image_search",
+                "iconTheme": "material-symbols-rounded",
+                "type": "button",
+                "selectWorkflow": {
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "env PATH=\"/usr/bin:/usr/sbin:$PATH\" bash -c '\n\nAPP=$(kdialog --inputbox \"Enter app name to find icon path:\");\n\nif [ -n \"$APP\" ]; then\n    PATH_TO_ICON=\"\"\n    DIRS=\"/usr/share/icons/ /var/lib/flatpak/exports/share/icons/ $HOME/.local/share/icons/ /usr/share/pixmaps/\"\n    SYMBOLS=\"symbolic|char-white/\"\n\n    # fn search all dir\n    search_icons() {\n        local appname=$1\n        local filter_symbolic=$2\n        local case_sensitive=$3\n\n        for dir in $DIRS; do\n            if [ -d \"$dir\" ]; then\n                # Find files matching the criteria in the current directory\n                local result\n\n                if [ \"$filter_symbolic\" = \"true\" ]; then\n                    if [ \"$case_sensitive\" = \"true\" ]; then\n                        result=$(find -L \"$dir\" -type f \\( -name \"$appname.png\" -o -name \"$appname.svg\" \\) 2>/dev/null | grep -vE -i \"$SYMBOLS\" | head -n 1)\n                    else\n                        result=$(find -L \"$dir\" -type f \\( -iname \"$appname.png\" -o -iname \"$appname.svg\" \\) 2>/dev/null | grep -vE -i \"$SYMBOLS\" | head -n 1)\n                    fi\n                else\n                    if [ \"$case_sensitive\" = \"true\" ]; then\n                        result=$(find -L \"$dir\" -type f \\( -name \"$appname.png\" -o -name \"$appname.svg\" \\) 2>/dev/null | head -n 1)\n                    else\n                        result=$(find -L \"$dir\" -type f \\( -iname \"$appname.png\" -o -iname \"$appname.svg\" \\) 2>/dev/null | head -n 1)\n                    fi\n                fi\n\n                if [ -n \"$result\" ]; then\n                    echo \"$result\"\n                    return 0\n                fi\n            fi\n        done\n        return 1\n    }\n\n    # exact case-sensitive match, no symbolic icons\n    PATH_TO_ICON=$(search_icons \"$APP\" \"true\" \"true\")\n\n    # exact case-insensitive match, no symbolic icons\n    if [ -z \"$PATH_TO_ICON\" ]; then\n        PATH_TO_ICON=$(search_icons \"$APP\" \"true\" \"false\")\n    fi\n\n    # loose case-insensitive match, no symbolic icons\n    if [ -z \"$PATH_TO_ICON\" ]; then\n        PATH_TO_ICON=$(search_icons \"*$APP\" \"true\" \"false\")\n    fi\n\n    # partial case-insensitive match, no symbolic icons\n    if [ -z \"$PATH_TO_ICON\" ]; then\n        PATH_TO_ICON=$(search_icons \"*$APP*\" \"true\" \"false\")\n    fi\n\n    # wildcard fallback\n    if [ -z \"$PATH_TO_ICON\" ]; then\n        for dir in $DIRS; do\n            if [ -d \"$dir\" ]; then\n                res=$(find \"$dir\" -iname \"*$APP*\" 2>/dev/null | head -n 1)\n                if [ -n \"$res\" ]; then PATH_TO_ICON=$res; break; fi\n            fi\n        done\n    fi\n\n    # output & notify\n    if [ -n \"$PATH_TO_ICON\" ]; then\n        if echo -n \"file://$PATH_TO_ICON\" | wl-copy; then\n            kdialog --icon dialog-information --title \"Icon Found\" --passivepopup \"Copied to clipboard:\\nfile://$PATH_TO_ICON\" 4\n        else\n            kdialog --icon dialog-error --title \"Icon Finder\" --passivepopup \"Found the icon but wl-copy failed (is wl-clipboard installed?):\\nfile://$PATH_TO_ICON\" 4\n        fi\n    else\n        kdialog --icon dialog-error --title \"Icon Finder\" --passivepopup \"No icon found for $APP\" 4\n    fi\nfi' || true ",
+                      "detached": false,
+                      "isolated": true
+                    },
+                    {
+                      "type": "close-menu"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "name": "Apps",
+            "icon": "steam-icon",
+            "iconTheme": "system",
+            "type": "submenu",
+            "angle": 0,
+            "openWorkflow": {
+              "quickSelectKey": "A",
+              "actions": []
+            },
+            "activateWorkflow": {
+              "quickSelectKey": "Backspace",
+              "actions": [
+                {
+                  "type": "close-submenu"
+                }
+              ]
+            },
+            "children": [
+              {
+                "name": "Outer Wilds",
+                "icon": "file:///home/hugin/.local/share/icons/hicolor/32x32/apps/steam_icon_753640.png",
+                "iconTheme": "base64",
+                "type": "button",
+                "selectWorkflow": {
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "steam steam://rungameid/753640",
+                      "detached": true,
+                      "isolated": true
+                    },
+                    {
+                      "type": "close-menu"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "Enshrouded",
+                "icon": "file:///home/hugin/.local/share/icons/hicolor/16x16/apps/steam_icon_1203620.png",
+                "iconTheme": "base64",
+                "type": "button",
+                "selectWorkflow": {
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "steam steam://rungameid/1203620",
+                      "detached": true,
+                      "isolated": true
+                    },
+                    {
+                      "type": "close-menu"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "BALL x PIT",
+                "icon": "file:///home/hugin/.local/share/icons/hicolor/32x32/apps/steam_icon_2062430.png",
+                "iconTheme": "base64",
+                "type": "button",
+                "selectWorkflow": {
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "steam steam://rungameid/2062430",
+                      "detached": true,
+                      "isolated": true
+                    },
+                    {
+                      "type": "close-menu"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "No Rest for the Wicked",
+                "icon": "file:///home/hugin/.local/share/icons/hicolor/32x32/apps/steam_icon_1371980.png",
+                "iconTheme": "base64",
+                "type": "button",
+                "selectWorkflow": {
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "steam steam://rungameid/1371980",
+                      "detached": true,
+                      "isolated": true
+                    },
+                    {
+                      "type": "close-menu"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "name": "Submenu",
+            "icon": "chat",
+            "iconTheme": "material-symbols-rounded",
+            "type": "submenu",
+            "activateWorkflow": {
+              "quickSelectKey": "Backspace",
+              "actions": [
+                {
+                  "type": "close-submenu"
+                }
+              ]
+            },
+            "children": [
+              {
+                "name": "Discord",
+                "icon": "discord",
+                "iconTheme": "system",
+                "type": "button",
+                "selectWorkflow": {
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "/usr/bin/discord --url --",
+                      "detached": true,
+                      "isolated": true
+                    },
+                    {
+                      "type": "close-menu"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "KDE Connect SMS",
+                "icon": "kdeconnect",
+                "iconTheme": "system",
+                "type": "button",
+                "selectWorkflow": {
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "kdeconnect-sms",
+                      "detached": true,
+                      "isolated": true
+                    },
+                    {
+                      "type": "close-menu"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "name": "Audio",
+            "icon": "play_circle",
+            "iconTheme": "material-symbols-rounded",
+            "type": "submenu",
+            "openWorkflow": {
+              "quickSelectKey": "A",
+              "actions": []
+            },
+            "activateWorkflow": {
+              "quickSelectKey": "Backspace",
+              "actions": [
+                {
+                  "type": "close-submenu"
+                }
+              ]
+            },
+            "children": [
+              {
+                "name": "Next Track",
+                "icon": "skip_next",
+                "iconTheme": "material-symbols-rounded",
+                "type": "button",
+                "angle": 90,
+                "selectWorkflow": {
+                  "quickSelectKey": "N",
+                  "actions": [
+                    {
+                      "type": "simulate-hotkey",
+                      "hotkey": "MediaTrackNext"
+                    },
+                    {
+                      "type": "close-menu"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "Play / Pause",
+                "icon": "play_pause",
+                "iconTheme": "material-symbols-rounded",
+                "type": "button",
+                "selectWorkflow": {
+                  "quickSelectKey": "P",
+                  "actions": [
+                    {
+                      "type": "simulate-hotkey",
+                      "hotkey": "MediaPlayPause"
+                    },
+                    {
+                      "type": "close-menu"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "Mute",
+                "icon": "music_off",
+                "iconTheme": "material-symbols-rounded",
+                "type": "button",
+                "selectWorkflow": {
+                  "quickSelectKey": "M",
+                  "actions": [
+                    {
+                      "type": "simulate-hotkey",
+                      "hotkey": "AudioVolumeMute"
+                    },
+                    {
+                      "type": "close-menu"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "Previous Track",
+                "icon": "skip_previous",
+                "iconTheme": "material-symbols-rounded",
+                "type": "button",
+                "angle": 270,
+                "selectWorkflow": {
+                  "quickSelectKey": "P",
+                  "actions": [
+                    {
+                      "type": "simulate-hotkey",
+                      "hotkey": "MediaTrackPrevious"
+                    },
+                    {
+                      "type": "close-menu"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "name": "Open Settings",
+            "icon": "settings-item.svg",
+            "iconTheme": "kando",
+            "type": "button",
+            "angle": 180,
+            "selectWorkflow": {
+              "actions": [
+                {
+                  "type": "open-settings"
+                },
+                {
+                  "type": "close-menu"
+                }
+              ]
+            }
+          },
+          {
+            "name": "Web Links",
+            "icon": "public",
+            "iconTheme": "material-symbols-rounded",
+            "type": "submenu",
+            "openWorkflow": {
+              "quickSelectKey": "L",
+              "actions": []
+            },
+            "activateWorkflow": {
+              "quickSelectKey": "Backspace",
+              "actions": [
+                {
+                  "type": "close-submenu"
+                }
+              ]
+            },
+            "children": [
+              {
+                "name": "Kando on YouTube",
+                "icon": "youtube",
+                "iconTheme": "simple-icons",
+                "type": "button",
+                "selectWorkflow": {
+                  "quickSelectKey": "Y",
+                  "actions": [
+                    {
+                      "type": "open-uri",
+                      "uri": "https://www.youtube.com/"
+                    },
+                    {
+                      "type": "close-menu"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "shortcut": "Control+Space",
+      "shortcutID": "2",
+      "useFixedPosition": false,
+      "fixedMenuPosition": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "anchored": false,
+      "hoverMode": false,
+      "tags": []
+    }
+  ],
+  "collections": [
+    {
+      "name": "Favorites",
+      "icon": "favorite",
+      "iconTheme": "material-symbols-rounded",
+      "tags": [
+        "favs"
+      ]
+    }
+  ]
+}

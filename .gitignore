@@ -47,6 +47,16 @@ configs/obsidian/*
 !configs/obsidian/*.json
 !configs/obsidian/obsidian.log
 
+# Claude Code: settings.json/known_marketplaces.json/memory/ are backed up
+# deliberately (see cachyos-setup.sh), never these - .credentials.json is
+# raw OAuth/API tokens, .claude.json has an oauthAccount field and machine/
+# user IDs (mode 600 on disk). Defense-in-depth in case a future script
+# edit ever does a broader copy - see the Obsidian note above for why this
+# matters (an earlier blind `cp -r` there leaked an Anthropic API key).
+configs/claude-code/*credential*
+configs/claude-code/*.claude.json
+configs/claude-code/history.jsonl
+
 # Backup files
 *.backup
 *.bak

@@ -224,6 +224,12 @@ seekforwardmedia=Media Fast Forward,Media Fast Forward,Media playback seek forwa
 seekforwardmedialong=none,none,Media playback seek forward 30s
 stopmedia=Media Stop,Media Stop,Stop media playback
 
+[menu.kando.Kando]
+1=none,none,1
+2=Ctrl+Space,none,2
+_k_friendly_name=Kando
+example-menu=none,none,example-menu
+
 [org_kde_powerdevil]
 Decrease Keyboard Brightness=Keyboard Brightness Down,Keyboard Brightness Down,Decrease Keyboard Brightness
 Decrease Screen Brightness=Monitor Brightness Down,Monitor Brightness Down,Decrease Screen Brightness
@@ -287,5 +293,7 @@ ShowOSD=Display
 _launch=Meta+.
 
 [services][org.kde.spectacle.desktop]
+CurrentMonitorScreenShot=none
+OpenWithoutScreenshot=none
 RecordScreen=none
 _launch=Print

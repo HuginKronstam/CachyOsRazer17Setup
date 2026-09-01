@@ -113,6 +113,13 @@ After the script completes, reboot to apply all changes.
   during Deploy Custom Configurations as a reminder to reinstall them
 - Backs up custom-built plasmoids (~/.local/share/plasma/plasmoids/), e.g.
   HuginWB, our own window-buttons panel widget (see configs/widgets/TODO.md)
+- Backs up Kando settings (config.json/menus.json/achievements.json and any
+  custom icon/menu/sound themes), not the rest of ~/.config/kando, which is
+  a full Chromium/Electron profile (cache, cookies, local storage)
+- Backs up Claude Code's settings.json, installed-plugin-marketplace list,
+  and this project's persistent memory - not ~/.claude/.credentials.json or
+  ~/.claude.json (both hold auth/account data), and not session transcripts
+  or any other runtime/cache state
 - Checks whether a newer Razer Control Revived release is available (compares
   against `~/.local/share/razercontrol/.installed-version`, written when Step 8
   installs it) - useful for tracking known upstream bugs until they're fixed,

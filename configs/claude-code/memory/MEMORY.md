@@ -1,0 +1,1 @@
+- [Shell is fish, not bash](shell_fish_not_bash.md) — commands for the user to paste must be fish-safe: no heredocs, no `\` continuation; prefer script files or single-line `echo | sudo tee`.

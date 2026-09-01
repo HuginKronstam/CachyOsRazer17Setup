@@ -107,7 +107,7 @@ backup_configs() {
     echo ""
 
     # Create backup directories
-    mkdir -p "$BACKUP_DIR"/{wezterm,kde,obsidian,vscode,vivaldi,handy,kwin-scripts,icons,wallpapers,plasma-widgets-shared,sensorfaces,widget-scripts,widget-source,widgets}
+    mkdir -p "$BACKUP_DIR"/{wezterm,kde,obsidian,vscode,vivaldi,handy,kwin-scripts,icons,wallpapers,plasma-widgets-shared,sensorfaces,widget-scripts,widget-source,widgets,kando,claude-code}
 
     # Backup WezTerm
     if [ -f ~/.config/wezterm/wezterm.lua ]; then
@@ -352,6 +352,56 @@ PYEOF
         print_success "HuginWB widget backed up"
     else
         print_warning "HuginWB widget not found, skipping"
+    fi
+
+    # Backup Kando's real settings/data (menus, config, achievements, and
+    # any custom icon/menu/sound themes) - deliberately NOT the whole
+    # ~/.config/kando directory, which also holds a full Chromium/Electron
+    # profile (session/, Code Cache, Cookies, SingletonLock, etc). Same
+    # allow-list approach as the Obsidian backup above and for the same
+    # reason: a previous blind directory copy elsewhere leaked an API key
+    # via exactly this kind of Chromium browser-storage cruft.
+    if [ -d ~/.config/kando ]; then
+        print_info "Backing up Kando settings (excluding Chromium/Electron internals)..."
+        mkdir -p "$BACKUP_DIR/kando"
+        for f in config.json menus.json achievements.json; do
+            [ -f ~/.config/kando/"$f" ] && cp ~/.config/kando/"$f" "$BACKUP_DIR/kando/"
+        done
+        for d in icon-themes menu-themes sound-themes; do
+            if [ -d ~/.config/kando/"$d" ] && [ -n "$(ls -A ~/.config/kando/"$d" 2>/dev/null)" ]; then
+                mkdir -p "$BACKUP_DIR/kando/$d"
+                cp -r ~/.config/kando/"$d"/. "$BACKUP_DIR/kando/$d/"
+            fi
+        done
+        print_success "Kando settings backed up"
+    else
+        print_warning "Kando config not found, skipping"
+    fi
+
+    # Backup Claude Code settings + this project's persistent memory.
+    # Deliberately NOT ~/.claude/.credentials.json (OAuth/API credentials)
+    # or ~/.claude.json (contains an oauthAccount field and machine/user
+    # IDs, mode 600 - Claude Code itself treats it as sensitive) or any of
+    # ~/.claude/{sessions,history.jsonl,ide,cache,shell-snapshots,...}
+    # (ephemeral runtime state, or full conversation transcripts that could
+    # contain anything discussed). Only known_marketplaces.json is backed
+    # up for plugins, not the actual downloaded plugin code under
+    # plugins/marketplaces/ - that's redownloadable third-party content,
+    # same reasoning as the icon themes above.
+    if [ -f ~/.claude/settings.json ]; then
+        print_info "Backing up Claude Code settings..."
+        cp ~/.claude/settings.json "$BACKUP_DIR/claude-code/"
+        [ -f ~/.claude/plugins/known_marketplaces.json ] && cp ~/.claude/plugins/known_marketplaces.json "$BACKUP_DIR/claude-code/"
+
+        CLAUDE_PROJECT_KEY=$(echo "$SCRIPT_DIR" | sed 's/\//-/g')
+        CLAUDE_MEMORY_DIR="$HOME/.claude/projects/$CLAUDE_PROJECT_KEY/memory"
+        if [ -d "$CLAUDE_MEMORY_DIR" ] && [ -n "$(ls -A "$CLAUDE_MEMORY_DIR" 2>/dev/null)" ]; then
+            mkdir -p "$BACKUP_DIR/claude-code/memory"
+            cp -r "$CLAUDE_MEMORY_DIR"/. "$BACKUP_DIR/claude-code/memory/"
+        fi
+        print_success "Claude Code settings backed up"
+    else
+        print_warning "Claude Code settings not found, skipping"
     fi
 
     # Check whether a newer Razer Control Revived release has shipped -
@@ -1256,6 +1306,13 @@ if ask_continue "Install Applications" \
   - razer-control KDE widget: Panel widget for quick Razer hardware access
   - handy: Offline, local speech-to-text transcription (from AUR, handy-bin)
   - gtk-layer-shell + wtype + openblas: Handy's Linux/Wayland runtime dependencies
+  - kando: Pie menu, installed from the latest GitHub release (not AUR's
+    kando-bin 2.3.1, which is confirmed broken on KDE/Wayland - it never
+    calls the app-id registration current xdg-desktop-portal versions
+    require, so GlobalShortcuts fails outright and the app is unusable)
+  - kando's KWin integration plugin: built from source, required alongside
+    it for KDE/Wayland (provides focused-window/pointer info over D-Bus)
+  - wl-clipboard: needed by Kando menu actions that copy to the clipboard
 
 Razer Control Revived provides:
   - Fan speed control
@@ -1282,7 +1339,7 @@ This may take 15-25 minutes depending on your system and internet speed."; then
     print_header "Step 8: Installing Applications"
 
     # Define packages
-    OFFICIAL_PACKAGES="discord steam vlc ttf-ibmplex-mono-nerd vivaldi vivaldi-ffmpeg-codecs caligula gtk-layer-shell wtype openblas"
+    OFFICIAL_PACKAGES="discord steam vlc ttf-ibmplex-mono-nerd vivaldi vivaldi-ffmpeg-codecs caligula gtk-layer-shell wtype openblas wl-clipboard cmake extra-cmake-modules vulkan-headers"
     AUR_PACKAGES="bitwarden visual-studio-code-bin obsidian wezterm handy-bin"
 
     # Install official packages
@@ -1361,7 +1418,99 @@ This may take 15-25 minutes depending on your system and internet speed."; then
     # Cleanup
     rm -rf "$RAZER_TMP" "$RAZER_REPO_TMP"
 
+    # Install Kando (pie menu) from the latest GitHub release, not AUR's
+    # kando-bin. That AUR package (2.3.1) is confirmed broken on KDE/Wayland:
+    # it never calls the org.freedesktop.portal.Registry.Register method
+    # current xdg-desktop-portal versions require for non-sandboxed apps, so
+    # GlobalShortcuts fails with "An app id is required" and the app never
+    # shows a tray icon or settings window. The 3.0.0 alpha series fixed
+    # that particular crash, but on KDE Wayland 6.7.4 (this system) global
+    # shortcuts still silently never bound on startup - confirmed fixed in
+    # 3.0.0-beta.1 ("A regression on KDE Wayland 6.7.4 which would cause
+    # global shortcuts to not work after Kando was started", verified
+    # live: BindShortcuts now fires automatically on startup and the
+    # configured shortcut works, including across a restart).
+    # /releases/latest excludes pre-releases by GitHub's own definition, so
+    # the full release list is used instead, taking the newest (first)
+    # entry - intentional, since the only actually-working build for this
+    # setup has been a pre-release each time so far.
+    print_info "Installing Kando (pie menu)..."
+    KANDO_RELEASES_JSON=$(curl -sL --connect-timeout 10 --max-time 15 \
+        "https://api.github.com/repos/kando-menu/kando/releases")
+    KANDO_URL=$(grep -oP '"browser_download_url":\s*"\K[^"]*x86_64\.AppImage' <<<"$KANDO_RELEASES_JSON" | head -1)
+    KANDO_TAG=$(grep -oP '"tag_name":\s*"\K[^"]+' <<<"$KANDO_RELEASES_JSON" | head -1)
+    if [ -z "$KANDO_URL" ]; then
+        print_warning "Could not determine latest Kando release, falling back to v3.0.0-beta.1"
+        KANDO_URL="https://github.com/kando-menu/kando/releases/download/v3.0.0-beta.1/Kando-3.0.0-beta.1-x86_64.AppImage"
+        KANDO_TAG="v3.0.0-beta.1"
+    fi
+
+    # Installed as plain "kando" (not "kando.AppImage") deliberately: AUR's
+    # kando-bin (2.3.1, broken on KDE/Wayland - see above) installs its own
+    # binary at /usr/bin/kando, and ~/.local/bin comes before /usr/bin in
+    # the default PATH order. Naming ours identically means it correctly
+    # shadows the broken one for both terminal use and this .desktop
+    # entry's Exec= (which relies on the same PATH lookup) - no ambiguity
+    # about which one actually launches.
+    mkdir -p ~/.local/bin ~/.local/share/applications
+    print_info "Downloading Kando ($KANDO_TAG)..."
+    curl -L "$KANDO_URL" -o ~/.local/bin/kando
+    chmod +x ~/.local/bin/kando
+
+    # Desktop entry so it shows up in the app launcher like a normal install
+    cat << 'EOF' > ~/.local/share/applications/kando.desktop
+[Desktop Entry]
+Name=Kando
+Comment=The Cross-Platform Pie Menu
+GenericName=Pie Menu
+Exec=kando %U
+Icon=kando
+Type=Application
+StartupNotify=true
+Categories=Utility;
+EOF
+
+    # Autostart entry - deliberately uses the absolute path, not "kando %U"
+    # (which the regular launcher entry above uses safely). XDG autostart
+    # fires very early in session startup, before ~/.local/bin is
+    # necessarily on PATH yet (confirmed: it's added by a systemd-native
+    # default, not any dotfile, and can race against early autostart) - an
+    # absolute path sidesteps that race entirely regardless of timing.
+    mkdir -p ~/.config/autostart
+    cat << 'EOF' > ~/.config/autostart/kando.desktop
+[Desktop Entry]
+Name=Kando
+Comment=The Cross-Platform Pie Menu
+GenericName=Pie Menu
+Exec=/home/hugin/.local/bin/kando %U
+Icon=kando
+Type=Application
+StartupNotify=true
+Categories=Utility;
+EOF
+
+    # Build and install Kando's companion KWin plugin - required alongside
+    # it for full functionality on KDE/Wayland (provides the focused-window
+    # name and pointer position over D-Bus; without it, GlobalShortcuts
+    # fails the same "app id" way the broken AUR package does)
+    print_info "Building Kando's KWin integration plugin..."
+    KANDO_KWIN_TMP="/tmp/kwin-integration"
+    rm -rf "$KANDO_KWIN_TMP"
+    git clone https://github.com/kando-menu/kwin-integration.git "$KANDO_KWIN_TMP"
+    (
+        cd "$KANDO_KWIN_TMP" || exit 1
+        cmake -S . -B build
+        cmake --build build --config Release
+        sudo cmake --install build --config Release
+    ) || print_warning "Kando KWin integration plugin build/install had issues - may need manual install"
+    rm -rf "$KANDO_KWIN_TMP"
+
     print_success "All applications installed successfully"
+    print_info "Kando: after this finishes, log out/in, then enable 'Kando KWin"
+    print_info "  Integration' under System Settings > Apps & Windows > Window"
+    print_info "  Management > Desktop Effects. Then run kando once, open its"
+    print_info "  Settings, and add a menu with a shortcut ID - KDE's shortcut"
+    print_info "  binding dialog will pop up automatically for it."
     print_info "Razer Control widget: Right-click panel → Add Widgets → Search 'Razer Control'"
     print_info "Handy needs a hotkey bound manually (Wayland has no app-level global shortcuts):"
     print_info "  System Settings → Shortcuts → Custom Shortcuts → New → Global Shortcut →"
@@ -1518,6 +1667,8 @@ Configs to deploy:
   - Widget setup scripts → ~/.local/share/scripts/widgets/ (if available)
   - Neon moon source photo → ~/Pictures/ (if available)
   - HuginWB widget → ~/.local/share/plasma/plasmoids/HuginWB/ (if available)
+  - Kando settings → ~/.config/kando/ (if available)
+  - Claude Code settings + this project's memory → ~/.claude/ (if available)
 
 Config files must be in ./configs/ directory relative to this script."; then
 
@@ -1700,6 +1851,42 @@ Config files must be in ./configs/ directory relative to this script."; then
         print_info "Restart plasmashell (or log out/in) to pick it up, then add it to your panel via Add Widgets"
     else
         print_info "No HuginWB widget found, skipping"
+    fi
+
+    # Deploy Kando settings (config/menus/achievements/themes only - see
+    # backup_configs for why the rest of ~/.config/kando isn't backed up)
+    if [ -d "$SCRIPT_DIR/configs/kando" ] && [ -n "$(ls -A "$SCRIPT_DIR/configs/kando" 2>/dev/null)" ]; then
+        print_info "Deploying Kando settings..."
+        mkdir -p ~/.config/kando
+        for f in config.json menus.json achievements.json; do
+            [ -f "$SCRIPT_DIR/configs/kando/$f" ] && cp "$SCRIPT_DIR/configs/kando/$f" ~/.config/kando/
+        done
+        for d in icon-themes menu-themes sound-themes; do
+            if [ -d "$SCRIPT_DIR/configs/kando/$d" ] && [ -n "$(ls -A "$SCRIPT_DIR/configs/kando/$d" 2>/dev/null)" ]; then
+                mkdir -p ~/.config/kando/"$d"
+                cp -r "$SCRIPT_DIR/configs/kando/$d/." ~/.config/kando/"$d"/
+            fi
+        done
+        print_success "Kando settings deployed"
+    else
+        print_info "No Kando settings found, skipping"
+    fi
+
+    # Deploy Claude Code settings + this project's persistent memory
+    if [ -d "$SCRIPT_DIR/configs/claude-code" ] && [ -n "$(ls -A "$SCRIPT_DIR/configs/claude-code" 2>/dev/null)" ]; then
+        print_info "Deploying Claude Code settings..."
+        mkdir -p ~/.claude/plugins
+        [ -f "$SCRIPT_DIR/configs/claude-code/settings.json" ] && cp "$SCRIPT_DIR/configs/claude-code/settings.json" ~/.claude/
+        [ -f "$SCRIPT_DIR/configs/claude-code/known_marketplaces.json" ] && cp "$SCRIPT_DIR/configs/claude-code/known_marketplaces.json" ~/.claude/plugins/
+
+        if [ -d "$SCRIPT_DIR/configs/claude-code/memory" ] && [ -n "$(ls -A "$SCRIPT_DIR/configs/claude-code/memory" 2>/dev/null)" ]; then
+            CLAUDE_PROJECT_KEY=$(echo "$SCRIPT_DIR" | sed 's/\//-/g')
+            mkdir -p "$HOME/.claude/projects/$CLAUDE_PROJECT_KEY/memory"
+            cp -r "$SCRIPT_DIR/configs/claude-code/memory/." "$HOME/.claude/projects/$CLAUDE_PROJECT_KEY/memory/"
+        fi
+        print_success "Claude Code settings deployed"
+    else
+        print_info "No Claude Code settings found, skipping"
     fi
 
     print_success "All configurations deployed"
