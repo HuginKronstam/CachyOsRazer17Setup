@@ -2,8 +2,9 @@
 last-run.log
 post-reboot.log
 
-# Local state for Proton Drive incremental Obsidian backups
+# Local state for Proton Drive incremental backups
 .proton-obsidian-backup-marker
+.proton-contacts-backup-marker
 
 # Sensitive configuration files
 # Add any configs that contain passwords, API keys, or personal info

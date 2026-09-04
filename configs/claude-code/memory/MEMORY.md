@@ -1,1 +1,2 @@
 - [Shell is fish, not bash](shell_fish_not_bash.md) — commands for the user to paste must be fish-safe: no heredocs, no `\` continuation; prefer script files or single-line `echo | sudo tee`.
+- [KWin Global Menu never works for Electron apps](kwin_appmenu_electron_limitation.md) — confirmed system limitation (Vivaldi/VS Code/Discord), not a truely-maximized bug.

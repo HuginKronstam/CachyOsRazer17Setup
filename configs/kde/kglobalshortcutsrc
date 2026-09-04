@@ -293,7 +293,5 @@ ShowOSD=Display
 _launch=Meta+.
 
 [services][org.kde.spectacle.desktop]
-CurrentMonitorScreenShot=none
-OpenWithoutScreenshot=none
 RecordScreen=none
 _launch=Print

@@ -65,14 +65,16 @@ chmod +x cachyos-setup.sh
 2) Backup Configs
 3) Backup Obsidian Vault to Proton Drive
 4) Restore Obsidian Vault from Proton Drive
-5) Exit
+5) Backup Contacts to Proton Drive
+6) Exit
 ```
 
 - **Option 1**: Install system (choose interactive/automatic mode)
 - **Option 2**: Backup your current configs to ./configs/, and offer to create a CachyOS boot drive if a suitable USB stick is plugged in
 - **Option 3**: Upload your Obsidian vault to Proton Drive
 - **Option 4**: Download your Obsidian vault from Proton Drive (overwrites local changes that differ)
-- **Option 5**: Exit
+- **Option 5**: Upload your Radicale contacts collection to Proton Drive
+- **Option 6**: Exit
 
 ### 3. Follow the Prompts
 
@@ -134,6 +136,44 @@ After the script completes, reboot to apply all changes.
 - Restore pulls the vault back down - local files that differ are replaced with the Proton Drive version
 - Requires signing in once with `proton-drive auth login` (opens a browser; the script can't do this non-interactively)
 
+### Contacts Backup (Proton Drive)
+- Backs up the local Radicale CardDAV collection (the address book KAddressBook
+  and DAVx5/Android both sync through - see "Self-hosted contact sync" below) to
+  `/my-files/contacts` on Proton Drive
+- Same incremental-upload logic as the Obsidian backup, just no restore side yet -
+  restoring into a live Radicale collection needs more care than downloading a
+  folder back into place, so for now this is backup-only
+- Radicale's storage (`/var/lib/radicale/collections/...`) is owned by the
+  `radicale` system user/group at `750` - your user needs to be in that group to
+  read it without sudo on every backup run:
+  ```bash
+  sudo usermod -aG radicale "$USER"   # then log out/in once
+  ```
+
+### Self-hosted Contact Sync (Radicale + Tailscale + DAVx5)
+Contacts are synced across devices without Google, using open protocols instead
+of a vendor's account:
+- **[Radicale](https://radicale.org/)** runs as a systemd service
+  (`/etc/radicale/config`, tracked at `configs/radicale/config`), storing
+  contacts as plain vCards - this is the source of truth
+- **[Tailscale](https://tailscale.com/)** gives the phone a private route to
+  reach wherever Radicale is running, without exposing anything to the public
+  internet
+- **KAddressBook** (via Akonadi's DAV Groupware resource) and **[DAVx5](https://www.davx5.com/)**
+  (Android, syncs into the native Contacts app) are two independent CardDAV
+  clients both pointed at the same Radicale collection
+- KDE Connect's own contacts-sync plugin is disabled on the paired device to
+  avoid a second, conflicting write path into the same contacts
+
+Setup System's **Step 15** installs and configures Radicale + Tailscale,
+asking whether Radicale should go on this laptop or a remote host over SSH
+(e.g. a future NAS - assumed to also be Arch-based). Tailscale is always
+installed locally regardless, since this machine stays a CardDAV client
+either way. What it can't do for you: `tailscale up` (browser login),
+adding the DAV Groupware resource in KAddressBook, creating the address
+book collection via Radicale's web UI, and setting up DAVx5 on the phone -
+all one-time, interactive, and documented above as they came up.
+
 ## How to Use
 
 ### First Time Setup
@@ -168,25 +208,25 @@ After the script completes, reboot to apply all changes.
 2. **NVIDIA Drivers** - Verifies/installs drivers for RTX 3080 Mobile
 3. **XWayland Support** - Installs X11/XWayland packages (needed for X11-app
    compatibility under Wayland, and kept as a manual fallback session), sets
-   Plasma **Wayland** as the default SDDM session, and enables NumLock on
-   the login screen (SDDM has its own separate NumLock setting, independent
-   of the Plasma session's preference)
-4. **GLX/NVIDIA Configuration**:
-   - GLX vendor configuration for NVIDIA (used by XWayland apps and the X11 fallback)
-   - Fixes black box rendering issues
-   - Enables both laptop and external displays
-5. **GPU Configuration** - Sets GPU mode to **nvidia** by default (the
-   external monitor on this laptop is wired directly to the dGPU, so it has
-   to be awake for that anyway - measured, not assumed). Installs two ways
-   to switch to **hybrid** (RTD3, dGPU sleeps when idle) for mobile/battery use:
+   Plasma **Wayland** as the default SDDM session, enables NumLock on the
+   login screen (SDDM has its own separate NumLock setting, independent of
+   the Plasma session's preference), and configures the GLX vendor for
+   NVIDIA (used by XWayland apps and the X11 fallback) - all part of this
+   same step, not a separate one
+4. **YAY Installation** - Installs the AUR helper, needed before the next
+   step since EnvyControl is an AUR package
+5. **GPU Configuration** - Installs EnvyControl and sets GPU mode to
+   **nvidia** by default (the external monitor on this laptop is wired
+   directly to the dGPU, so it has to be awake for that anyway - measured,
+   not assumed). Installs two ways to switch to **hybrid** (RTD3, dGPU
+   sleeps when idle) for mobile/battery use:
    - `gpu-mode-monitor.service`: watches for the external monitor
      connecting/disconnecting and prompts you to switch
    - `gpu-mode-toggle.sh`: same prompt-and-switch logic, for a hotkey
    Also installs `nvidia-prime`, `switcheroo-control`, and `thermald`.
 6. **Initramfs Rebuild** - Applies driver changes
-7. **YAY Installation** - Installs AUR helper
-8. **Gaming Setup** - Installs cachyos-gaming-meta package
-9. **Applications** - Installs your software suite:
+7. **Gaming Setup** - Installs cachyos-gaming-meta package
+8. **Applications** - Installs your software suite:
    - Discord
    - Vivaldi Browser
    - Bitwarden
@@ -198,15 +238,18 @@ After the script completes, reboot to apply all changes.
    - BlexMono Nerd Font
    - Caligula (USB boot drive imaging, used by the Backup Configs menu option)
    - Handy (offline speech-to-text transcription)
-10. **Remove Unwanted Software** - Removes pre-installed apps:
+   - Razer Control Revived + its KDE panel widget (fan/RGB/battery/power)
+   - Kando (pie menu) + its KWin integration plugin, built from source
+9. **Remove Unwanted Software** - Removes pre-installed apps:
    - Alacritty (replaced by WezTerm)
    - Firefox (replaced by Vivaldi)
    - All associated configs cleaned up
-11. **NVIDIA Services** - Enables power management for suspend/resume
-12. **Verification** - Checks that NVIDIA is working
-13. **Deploy Configurations** - Deploys all your custom configs (done last to ensure proper defaults)
-14. **Proton Drive CLI** - Installs `proton-drive-cli-bin` for Obsidian vault backup/restore (see below). You still need to run `proton-drive auth login` yourself afterward - sign-in opens a browser and can't be scripted.
-15. **KDE Connect Firewall** - Opens TCP/UDP ports 1714-1764 in `ufw`. KDE Connect comes pre-installed with Plasma, but `ufw` blocks its discovery traffic by default, so pairing silently fails until these ports are opened.
+10. **NVIDIA Services** - Enables power management for suspend/resume
+11. **Verification** - Checks that NVIDIA is working
+12. **Deploy Configurations** - Deploys all your custom configs (done last to ensure proper defaults)
+13. **Proton Drive CLI** - Installs `proton-drive-cli-bin` for Obsidian vault/contacts backup (see below). You still need to run `proton-drive auth login` yourself afterward - sign-in opens a browser and can't be scripted.
+14. **KDE Connect Firewall** - Opens TCP/UDP ports 1714-1764 in `ufw`. KDE Connect comes pre-installed with Plasma, but `ufw` blocks its discovery traffic by default, so pairing silently fails until these ports are opened.
+15. **Self-Hosted Contact Sync** - Installs and configures Radicale + Tailscale (see "Self-hosted Contact Sync" below); the manual follow-up steps it can't do for you (`tailscale up`, the KAddressBook DAV wizard, DAVx5 on your phone) are printed at the end of this step.
 
 ### After Running
 

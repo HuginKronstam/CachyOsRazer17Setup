@@ -300,9 +300,9 @@ DialogHeight=630
 DialogWidth=810
 
 [Containments][47][General]
-changedPositions={"desktop:/BSG - Launcher.desktop":["2560x1440,1920x1080","0","19"],"desktop:/SPT - Launcher.desktop":["2560x1440,1920x1080","0","20"],"desktop:/SPT - Server.desktop":["2560x1440,1920x1080","0","21"],"desktop:/steam.desktop":["2560x1440,1920x1080","0","22"]}
+changedPositions={"desktop:/BSG - Launcher.desktop":["1920x1080,2560x1440","0","19"],"desktop:/SPT - Launcher.desktop":["1920x1080,2560x1440","0","20"],"desktop:/SPT - Server.desktop":["1920x1080,2560x1440","0","21"],"desktop:/steam.desktop":["1920x1080,2560x1440","0","22"]}
 lastResolution=2560x1440
-positions={"1920x1080":["6","17","desktop:/BSG - Launcher.desktop","0","16","desktop:/SPT - Launcher.desktop","5","10","desktop:/steam.desktop","5","12","desktop:/SPT - Server.desktop","5","11"],"2560x1440":["1","23","desktop:/BSG - Launcher.desktop","0","19","desktop:/SPT - Launcher.desktop","0","20","desktop:/steam.desktop","0","22","desktop:/SPT - Server.desktop","0","21"]}
+positions={"1920x1080":["6","17","desktop:/BSG - Launcher.desktop","0","16","desktop:/SPT - Launcher.desktop","5","10","desktop:/steam.desktop","5","12","desktop:/SPT - Server.desktop","5","11"],"2560x1440":["1","23","desktop:/SPT - Launcher.desktop","0","20","desktop:/BSG - Launcher.desktop","0","19","desktop:/SPT - Server.desktop","0","21","desktop:/steam.desktop","0","22"]}
 sortMode=-1
 
 [Containments][47][Wallpaper][org.kde.color][General]
@@ -313,8 +313,9 @@ Image=file:///home/hugin/.local/share/wallpapers/Tranquil Neon City Street.png
 SlidePaths=/usr/share/wallpapers/
 
 [Containments][48]
-ItemGeometries-1920x1080=Applet-57:1136,32,208,224,0;
-ItemGeometriesHorizontal=Applet-57:1136,32,208,224,0;
+ItemGeometries-1920x1080=Applet-57:1328,32,208,224,0;
+ItemGeometries-2560x1440=Applet-57:1328,32,208,224,0;
+ItemGeometriesHorizontal=Applet-57:1328,32,208,224,0;
 activityId=38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb
 formfactor=0
 immutability=1
@@ -369,4 +370,4 @@ SlidePaths=/usr/share/wallpapers/
 
 [ScreenMapping]
 itemsOnDisabledScreens=
-screenMapping=desktop:/BSG - Launcher.desktop,0,38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb,desktop:/steam.desktop,0,7f92cf8a-6ffd-4984-a5b7-f5dca3027036,desktop:/steam.desktop,0,0c74d41f-52a7-4153-be94-35963d39defb,desktop:/SPT - Server.desktop,0,38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb,desktop:/SPT - Launcher.desktop,0,38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb,desktop:/antigravity.desktop,0,7f92cf8a-6ffd-4984-a5b7-f5dca3027036,desktop:/steam.desktop,0,38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb
+screenMapping=desktop:/SPT - Server.desktop,0,38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb,desktop:/steam.desktop,0,0c74d41f-52a7-4153-be94-35963d39defb,desktop:/steam.desktop,0,38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb,desktop:/antigravity.desktop,0,7f92cf8a-6ffd-4984-a5b7-f5dca3027036,desktop:/steam.desktop,0,7f92cf8a-6ffd-4984-a5b7-f5dca3027036,desktop:/BSG - Launcher.desktop,0,38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb,desktop:/SPT - Launcher.desktop,0,38c68bb3-0b5f-42b8-9aa0-fc9c9bd8b8eb

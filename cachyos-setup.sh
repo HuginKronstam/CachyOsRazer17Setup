@@ -34,6 +34,14 @@ OBSIDIAN_VAULT_DIR="$HOME/Documents/Obsidian/Hugins Saga"
 # incremental backups instead of re-uploading the whole vault every time.
 PROTON_BACKUP_MARKER="$SCRIPT_DIR/.proton-obsidian-backup-marker"
 
+# Local Radicale contacts collection (the CardDAV address book KAddressBook
+# and DAVx5 both sync through - see UPSTREAM-BUGS.md / plan history for the
+# setup). Owned by the "radicale" system user/group (750) - reading it
+# without sudo on every backup run requires your user to be in that group:
+#   sudo usermod -aG radicale "$USER"   # then log out/in once
+CONTACTS_BACKUP_DIR="/var/lib/radicale/collections/collection-root/hugin/315162dc-ed15-d2c0-ce57-de1f64be154e"
+CONTACTS_BACKUP_MARKER="$SCRIPT_DIR/.proton-contacts-backup-marker"
+
 # Where CachyOS ISOs get downloaded/cached for boot drive creation, and the
 # official mirror we scrape for the latest desktop release.
 CACHYOS_ISO_CACHE_DIR="$HOME/.cache/cachyos-setup-iso"
@@ -94,6 +102,18 @@ ask_continue() {
     return 0
 }
 
+# Runs a command either on this machine or on CONTACT_SYNC_TARGET
+# ("user@host") over SSH, depending on whether that variable is set. Used by
+# the self-hosted contact sync step so Radicale can be installed locally or
+# on a remote host (e.g. a future NAS) without duplicating every command.
+run_on_contact_sync_target() {
+    if [ -z "${CONTACT_SYNC_TARGET:-}" ]; then
+        eval "$1"
+    else
+        ssh -t "$CONTACT_SYNC_TARGET" "$1"
+    fi
+}
+
 ################################################################################
 # Backup Configs Function
 ################################################################################
@@ -107,7 +127,7 @@ backup_configs() {
     echo ""
 
     # Create backup directories
-    mkdir -p "$BACKUP_DIR"/{wezterm,kde,obsidian,vscode,vivaldi,handy,kwin-scripts,icons,wallpapers,plasma-widgets-shared,sensorfaces,widget-scripts,widget-source,widgets,kando,claude-code}
+    mkdir -p "$BACKUP_DIR"/{wezterm,kde,obsidian,vscode,vivaldi,handy,kwin-scripts,icons,wallpapers,plasma-widgets-shared,sensorfaces,widget-scripts,widget-source,widgets,kando,claude-code,radicale}
 
     # Backup WezTerm
     if [ -f ~/.config/wezterm/wezterm.lua ]; then
@@ -204,6 +224,18 @@ backup_configs() {
         print_success "KWin scripts backed up"
     else
         print_warning "No KWin scripts found, skipping"
+    fi
+
+    # Backup Radicale's config (Step 15 deploys it FROM configs/radicale/
+    # onto a fresh system, but nothing was capturing it back the other way -
+    # without this, a live edit to /etc/radicale/config would silently drift
+    # from what's tracked in the repo. World-readable (644), no sudo needed.
+    if [ -f /etc/radicale/config ]; then
+        print_info "Backing up Radicale config..."
+        cp /etc/radicale/config "$BACKUP_DIR/radicale/config"
+        print_success "Radicale config backed up"
+    else
+        print_warning "Radicale config not found, skipping"
     fi
 
     # Backup custom icons - ~/.local/share/icons/hicolor is the standard
@@ -654,39 +686,54 @@ add_setup_bootstrap_partition() {
 }
 
 ################################################################################
-# Proton Drive - Obsidian Vault Backup/Restore
+# Proton Drive - Folder Backup (generic) + Obsidian/Contacts Restore
 ################################################################################
-# Uploads/downloads the vault as a whole folder, so the remote path mirrors
-# the local folder name: OBSIDIAN_VAULT_DIR uploads into /my-files, and
-# comes back down from /my-files/<vault folder name>.
+# backup_dir_to_proton uploads/downloads a whole local folder into a chosen
+# remote folder name under /my-files, tracking an incremental marker file
+# per source so later runs only upload what changed. Each real backup
+# (Obsidian, Contacts, and anything added later) is a thin wrapper around
+# this with its own label/dir/remote name/marker - add a new one the same
+# way rather than duplicating the upload logic. An optional 5th argument
+# excludes a named subdirectory (e.g. Radicale's regenerable
+# .Radicale.cache/) from every upload, first run included.
 
-backup_obsidian_to_proton() {
-    print_header "Backing Up Obsidian Vault to Proton Drive"
+backup_dir_to_proton() {
+    local label="$1" local_dir="$2" remote_folder="$3" marker_file="$4"
+    local exclude_name="${5:-}"
+
+    print_header "Backing Up $label to Proton Drive"
 
     if ! command -v proton-drive &>/dev/null; then
         print_error "proton-drive CLI not found"
-        print_info "Install it via Setup System, or manually: yay -S proton-drive-cli-bin"
+        print_info "Install it via Setup System, or manually: yay -S --needed proton-drive-cli-bin"
         return 1
     fi
 
-    if [ ! -d "$OBSIDIAN_VAULT_DIR" ]; then
-        print_error "Obsidian vault not found at: $OBSIDIAN_VAULT_DIR"
-        print_info "Edit OBSIDIAN_VAULT_DIR near the top of this script if your vault has moved"
+    if [ ! -d "$local_dir" ]; then
+        print_error "$label not found at: $local_dir"
+        return 1
+    fi
+    if [ ! -r "$local_dir" ]; then
+        print_error "$label exists but isn't readable: $local_dir"
+        print_info "Permission denied - check ownership/group membership on that path"
         return 1
     fi
 
-    local vault_name start_time
-    vault_name="$(basename "$OBSIDIAN_VAULT_DIR")"
+    local start_time
     start_time=$(date +%s.%N)
 
-    print_info "Local vault:  $OBSIDIAN_VAULT_DIR"
-    print_info "Remote path:  /my-files/$vault_name"
+    print_info "Local dir:    $local_dir"
+    print_info "Remote path:  /my-files/$remote_folder"
 
-    if [ ! -f "$PROTON_BACKUP_MARKER" ]; then
-        # First backup ever - no marker to diff against, so upload
-        # everything once. This also creates the remote folder structure
-        # that later incremental runs upload individual files into.
-        print_info "No previous backup found - uploading the full vault (first run only)"
+    local first_run=0
+    [ ! -f "$marker_file" ] && first_run=1
+
+    if [ "$first_run" -eq 1 ] && [ -z "$exclude_name" ]; then
+        # First backup ever, nothing to exclude - upload the whole folder
+        # in one shot instead of enumerating every file. This also creates
+        # the remote folder structure that later incremental runs upload
+        # individual files into.
+        print_info "No previous backup found - uploading everything (first run only)"
         echo ""
         print_warning "Files that differ will be REPLACED on Proton Drive with your local versions."
         read -p "Continue with upload? [y/N] " confirm
@@ -697,9 +744,20 @@ backup_obsidian_to_proton() {
 
         if proton-drive filesystem upload --file-conflict-strategy replace \
             --folder-conflict-strategy merge --skip-thumbnails \
-            "$OBSIDIAN_VAULT_DIR" /my-files; then
-            touch -d "@$start_time" "$PROTON_BACKUP_MARKER"
-            print_success "Obsidian vault backed up to Proton Drive (/my-files/$vault_name)"
+            "$local_dir" /my-files; then
+            # proton-drive names the remote folder after $local_dir's own
+            # basename, not $remote_folder - only the same thing by
+            # coincidence when a caller's remote name happens to match its
+            # local directory name (true for Obsidian, not guaranteed for
+            # anything added later). Rename if they differ so the remote
+            # path actually matches what was asked for.
+            local uploaded_name
+            uploaded_name="$(basename "$local_dir")"
+            if [ "$uploaded_name" != "$remote_folder" ]; then
+                proton-drive filesystem rename "/my-files/$uploaded_name" "$remote_folder"
+            fi
+            touch -d "@$start_time" "$marker_file"
+            print_success "$label backed up to Proton Drive (/my-files/$remote_folder)"
         else
             print_error "Backup failed - if this is the first run, sign in first: proton-drive auth login"
             return 1
@@ -707,22 +765,31 @@ backup_obsidian_to_proton() {
         return 0
     fi
 
-    # Incremental run - only upload files modified since the last
-    # successful backup, instead of re-uploading/replacing everything.
+    # Either an incremental run, or a first run that needs to skip
+    # $exclude_name - both enumerate matching files individually instead
+    # of the single whole-folder call above.
+    local find_args=("$local_dir" -type f)
+    [ -n "$exclude_name" ] && find_args+=(-not -path "*/$exclude_name/*")
+    [ "$first_run" -eq 0 ] && find_args+=(-newer "$marker_file")
+
     local changed_files=()
     while IFS= read -r -d '' file; do
         changed_files+=("$file")
-    done < <(find "$OBSIDIAN_VAULT_DIR" -type f -newer "$PROTON_BACKUP_MARKER" -print0)
+    done < <(find "${find_args[@]}" -print0)
 
     if [ ${#changed_files[@]} -eq 0 ]; then
-        print_success "Nothing changed since the last backup - skipping upload"
+        if [ "$first_run" -eq 1 ]; then
+            print_warning "Nothing to upload (everything excluded?)"
+        else
+            print_success "Nothing changed since the last backup - skipping upload"
+        fi
         return 0
     fi
 
     local file rel_path
     print_info "${#changed_files[@]} file(s) changed since the last backup:"
     for file in "${changed_files[@]}"; do
-        rel_path="${file#"$OBSIDIAN_VAULT_DIR"/}"
+        rel_path="${file#"$local_dir"/}"
         echo "    $rel_path"
     done
     echo ""
@@ -735,12 +802,12 @@ backup_obsidian_to_proton() {
 
     local fail=0 rel_dir remote_parent
     for file in "${changed_files[@]}"; do
-        rel_path="${file#"$OBSIDIAN_VAULT_DIR"/}"
+        rel_path="${file#"$local_dir"/}"
         rel_dir="$(dirname "$rel_path")"
         if [ "$rel_dir" = "." ]; then
-            remote_parent="/my-files/$vault_name"
+            remote_parent="/my-files/$remote_folder"
         else
-            remote_parent="/my-files/$vault_name/$rel_dir"
+            remote_parent="/my-files/$remote_folder/$rel_dir"
         fi
 
         if proton-drive filesystem upload --file-conflict-strategy replace \
@@ -757,13 +824,13 @@ backup_obsidian_to_proton() {
             local grandparent_dir grandparent_remote
             grandparent_dir="$(dirname "$rel_dir")"
             if [ "$grandparent_dir" = "." ]; then
-                grandparent_remote="/my-files/$vault_name"
+                grandparent_remote="/my-files/$remote_folder"
             else
-                grandparent_remote="/my-files/$vault_name/$grandparent_dir"
+                grandparent_remote="/my-files/$remote_folder/$grandparent_dir"
             fi
             if proton-drive filesystem upload --file-conflict-strategy replace \
                 --folder-conflict-strategy merge --skip-thumbnails \
-                "$OBSIDIAN_VAULT_DIR/$rel_dir" "$grandparent_remote"; then
+                "$local_dir/$rel_dir" "$grandparent_remote"; then
                 continue
             fi
         fi
@@ -773,11 +840,23 @@ backup_obsidian_to_proton() {
     done
 
     if [ "$fail" -eq 0 ]; then
-        touch -d "@$start_time" "$PROTON_BACKUP_MARKER"
+        touch -d "@$start_time" "$marker_file"
         print_success "Uploaded ${#changed_files[@]} changed file(s) to Proton Drive"
     else
         print_warning "Some files failed to upload - marker not updated, they'll be retried next time"
     fi
+}
+
+backup_obsidian_to_proton() {
+    backup_dir_to_proton "Obsidian Vault" "$OBSIDIAN_VAULT_DIR" \
+        "$(basename "$OBSIDIAN_VAULT_DIR")" "$PROTON_BACKUP_MARKER"
+}
+
+backup_contacts_to_proton() {
+    # .Radicale.cache/ is Radicale's own regenerable performance/sync cache,
+    # not contact data - excluded so backups only carry the actual vCards.
+    backup_dir_to_proton "Contacts" "$CONTACTS_BACKUP_DIR" \
+        "contacts" "$CONTACTS_BACKUP_MARKER" ".Radicale.cache"
 }
 
 restore_obsidian_from_proton() {
@@ -785,7 +864,7 @@ restore_obsidian_from_proton() {
 
     if ! command -v proton-drive &>/dev/null; then
         print_error "proton-drive CLI not found"
-        print_info "Install it via Setup System, or manually: yay -S proton-drive-cli-bin"
+        print_info "Install it via Setup System, or manually: yay -S --needed proton-drive-cli-bin"
         return 1
     fi
 
@@ -829,7 +908,8 @@ show_menu() {
     echo "2) Backup Configs"
     echo "3) Backup Obsidian Vault to Proton Drive"
     echo "4) Restore Obsidian Vault from Proton Drive"
-    echo "5) Exit"
+    echo "5) Backup Contacts to Proton Drive"
+    echo "6) Exit"
     echo ""
 }
 
@@ -888,6 +968,11 @@ while true; do
             read -p "Press Enter to return to menu..."
             ;;
         5)
+            # Backup Contacts to Proton Drive
+            backup_contacts_to_proton
+            read -p "Press Enter to return to menu..."
+            ;;
+        6)
             # Exit
             print_info "Exiting..."
             exit 0
@@ -987,7 +1072,7 @@ If drivers are already installed, we'll just verify them and move on."; then
             sudo pacman -S --needed nvidia-dkms nvidia-utils lib32-nvidia-utils nvidia-settings
         else
             # In non-interactive mode, just accept defaults
-            yes "" | sudo pacman -S --needed nvidia-dkms nvidia-utils lib32-nvidia-utils nvidia-settings
+            sudo pacman -S --noconfirm --needed nvidia-dkms nvidia-utils lib32-nvidia-utils nvidia-settings
         fi
 
         print_success "NVIDIA drivers installed"
@@ -1180,7 +1265,13 @@ To switch modes manually instead of using the hotkey:
 
     # Install envycontrol from AUR
     print_info "Installing EnvyControl from AUR..."
-    yay -S --noconfirm envycontrol
+    ENVYCONTROL_INSTALLED=false
+    if yay -S --noconfirm --needed envycontrol; then
+        ENVYCONTROL_INSTALLED=true
+    else
+        print_error "Failed to install EnvyControl from AUR - GPU mode won't be configured"
+        print_info "AUR builds can fail intermittently - re-run this step, or manually: yay -S envycontrol"
+    fi
 
     # nvidia-prime gives us the 'prime-run' wrapper for PRIME offload
     print_info "Installing nvidia-prime for PRIME render offload..."
@@ -1198,8 +1289,18 @@ To switch modes manually instead of using the hotkey:
 
     # Default to nvidia mode - matches the docked/external-monitor use case
     # that covers the vast majority of actual usage on this laptop
-    print_info "Setting GPU mode to nvidia (docked default)..."
-    sudo envycontrol -s nvidia --dm sddm
+    GPU_MODE_SET=false
+    if [ "$ENVYCONTROL_INSTALLED" = true ]; then
+        print_info "Setting GPU mode to nvidia (docked default)..."
+        if sudo envycontrol -s nvidia --dm sddm; then
+            GPU_MODE_SET=true
+        else
+            print_error "envycontrol failed to set nvidia mode - GPU mode is NOT configured"
+            print_info "Check the output above, then run manually: sudo envycontrol -s nvidia --dm sddm"
+        fi
+    else
+        print_warning "Skipping GPU mode set - EnvyControl isn't installed"
+    fi
 
     # Extra NVIDIA options EnvyControl doesn't set, in our own file so
     # they survive EnvyControl rewriting nvidia.conf on future mode switches
@@ -1227,7 +1328,11 @@ EOF
     systemctl --user enable --now gpu-mode-monitor.service 2>/dev/null \
         || print_info "gpu-mode-monitor.service will start on next login (normal before reboot)"
 
-    print_success "EnvyControl installed and GPU set to nvidia mode (docked default)"
+    if [ "$GPU_MODE_SET" = true ]; then
+        print_success "EnvyControl installed and GPU set to nvidia mode (docked default)"
+    else
+        print_warning "EnvyControl setup incomplete - GPU mode was NOT changed, see errors above"
+    fi
     print_info "G-SYNC negotiation retries disabled (prevents periodic screen flashing)"
     print_info "Auto-detect service running: unplugging/plugging the external monitor"
     print_info "  will now prompt you to switch GPU modes"
@@ -1279,7 +1384,7 @@ Meta-packages are convenient bundles that install multiple related
 packages at once. This ensures you have a complete gaming setup."; then
 
     print_header "Step 7: Installing Gaming Meta Package"
-    sudo pacman -S --noconfirm cachyos-gaming-meta
+    sudo pacman -S --noconfirm --needed cachyos-gaming-meta
     print_success "Gaming meta package installed"
 fi
 
@@ -1312,6 +1417,9 @@ if ask_continue "Install Applications" \
     require, so GlobalShortcuts fails outright and the app is unusable)
   - kando's KWin integration plugin: built from source, required alongside
     it for KDE/Wayland (provides focused-window/pointer info over D-Bus)
+  - cmake + extra-cmake-modules + vulkan-headers: build tooling needed only
+    to compile that KWin integration plugin above, not runtime deps of Kando
+    itself
   - wl-clipboard: needed by Kando menu actions that copy to the clipboard
 
 Razer Control Revived provides:
@@ -1344,11 +1452,11 @@ This may take 15-25 minutes depending on your system and internet speed."; then
 
     # Install official packages
     print_info "Installing packages from official repositories..."
-    sudo pacman -S --noconfirm $OFFICIAL_PACKAGES
+    sudo pacman -S --noconfirm --needed $OFFICIAL_PACKAGES
 
     # Install AUR packages
     print_info "Installing packages from AUR (this may take a while)..."
-    yay -S --noconfirm $AUR_PACKAGES
+    yay -S --noconfirm --needed $AUR_PACKAGES
 
     # Install Razer Control Revived from the latest GitHub release tarball.
     # Always grabs the latest release rather than pinning a version - this
@@ -1454,11 +1562,18 @@ This may take 15-25 minutes depending on your system and internet speed."; then
     # about which one actually launches.
     mkdir -p ~/.local/bin ~/.local/share/applications
     print_info "Downloading Kando ($KANDO_TAG)..."
-    curl -L "$KANDO_URL" -o ~/.local/bin/kando
-    chmod +x ~/.local/bin/kando
+    KANDO_DOWNLOAD_OK=false
+    if curl -L --fail -o ~/.local/bin/kando "$KANDO_URL"; then
+        chmod +x ~/.local/bin/kando
+        KANDO_DOWNLOAD_OK=true
+    else
+        print_error "Failed to download Kando from $KANDO_URL - skipping Kando setup"
+        rm -f ~/.local/bin/kando
+    fi
 
-    # Desktop entry so it shows up in the app launcher like a normal install
-    cat << 'EOF' > ~/.local/share/applications/kando.desktop
+    if [ "$KANDO_DOWNLOAD_OK" = true ]; then
+        # Desktop entry so it shows up in the app launcher like a normal install
+        cat << 'EOF' > ~/.local/share/applications/kando.desktop
 [Desktop Entry]
 Name=Kando
 Comment=The Cross-Platform Pie Menu
@@ -1470,14 +1585,14 @@ StartupNotify=true
 Categories=Utility;
 EOF
 
-    # Autostart entry - deliberately uses the absolute path, not "kando %U"
-    # (which the regular launcher entry above uses safely). XDG autostart
-    # fires very early in session startup, before ~/.local/bin is
-    # necessarily on PATH yet (confirmed: it's added by a systemd-native
-    # default, not any dotfile, and can race against early autostart) - an
-    # absolute path sidesteps that race entirely regardless of timing.
-    mkdir -p ~/.config/autostart
-    cat << 'EOF' > ~/.config/autostart/kando.desktop
+        # Autostart entry - deliberately uses the absolute path, not "kando %U"
+        # (which the regular launcher entry above uses safely). XDG autostart
+        # fires very early in session startup, before ~/.local/bin is
+        # necessarily on PATH yet (confirmed: it's added by a systemd-native
+        # default, not any dotfile, and can race against early autostart) - an
+        # absolute path sidesteps that race entirely regardless of timing.
+        mkdir -p ~/.config/autostart
+        cat << 'EOF' > ~/.config/autostart/kando.desktop
 [Desktop Entry]
 Name=Kando
 Comment=The Cross-Platform Pie Menu
@@ -1489,28 +1604,31 @@ StartupNotify=true
 Categories=Utility;
 EOF
 
-    # Build and install Kando's companion KWin plugin - required alongside
-    # it for full functionality on KDE/Wayland (provides the focused-window
-    # name and pointer position over D-Bus; without it, GlobalShortcuts
-    # fails the same "app id" way the broken AUR package does)
-    print_info "Building Kando's KWin integration plugin..."
-    KANDO_KWIN_TMP="/tmp/kwin-integration"
-    rm -rf "$KANDO_KWIN_TMP"
-    git clone https://github.com/kando-menu/kwin-integration.git "$KANDO_KWIN_TMP"
-    (
-        cd "$KANDO_KWIN_TMP" || exit 1
-        cmake -S . -B build
-        cmake --build build --config Release
-        sudo cmake --install build --config Release
-    ) || print_warning "Kando KWin integration plugin build/install had issues - may need manual install"
-    rm -rf "$KANDO_KWIN_TMP"
+        # Build and install Kando's companion KWin plugin - required alongside
+        # it for full functionality on KDE/Wayland (provides the focused-window
+        # name and pointer position over D-Bus; without it, GlobalShortcuts
+        # fails the same "app id" way the broken AUR package does)
+        print_info "Building Kando's KWin integration plugin..."
+        KANDO_KWIN_TMP="/tmp/kwin-integration"
+        rm -rf "$KANDO_KWIN_TMP"
+        git clone https://github.com/kando-menu/kwin-integration.git "$KANDO_KWIN_TMP"
+        (
+            cd "$KANDO_KWIN_TMP" || exit 1
+            cmake -S . -B build
+            cmake --build build --config Release
+            sudo cmake --install build --config Release
+        ) || print_warning "Kando KWin integration plugin build/install had issues - may need manual install"
+        rm -rf "$KANDO_KWIN_TMP"
+    fi
 
     print_success "All applications installed successfully"
-    print_info "Kando: after this finishes, log out/in, then enable 'Kando KWin"
-    print_info "  Integration' under System Settings > Apps & Windows > Window"
-    print_info "  Management > Desktop Effects. Then run kando once, open its"
-    print_info "  Settings, and add a menu with a shortcut ID - KDE's shortcut"
-    print_info "  binding dialog will pop up automatically for it."
+    if [ "$KANDO_DOWNLOAD_OK" = true ]; then
+        print_info "Kando: after this finishes, log out/in, then enable 'Kando KWin"
+        print_info "  Integration' under System Settings > Apps & Windows > Window"
+        print_info "  Management > Desktop Effects. Then run kando once, open its"
+        print_info "  Settings, and add a menu with a shortcut ID - KDE's shortcut"
+        print_info "  binding dialog will pop up automatically for it."
+    fi
     print_info "Razer Control widget: Right-click panel → Add Widgets → Search 'Razer Control'"
     print_info "Handy needs a hotkey bound manually (Wayland has no app-level global shortcuts):"
     print_info "  System Settings → Shortcuts → Custom Shortcuts → New → Global Shortcut →"
@@ -1898,7 +2016,7 @@ fi
 
 if ask_continue "Install Proton Drive CLI" \
 "This step installs the official Proton Drive command-line client, used
-to back up and restore your Obsidian vault to/from Proton Drive
+to back up your Obsidian vault and contacts to/from Proton Drive
 (https://proton.me/blog/proton-drive-cli).
 
 We'll install 'proton-drive-cli-bin' from the AUR (the precompiled
@@ -1912,13 +2030,18 @@ binary, package name 'proton-drive').
 Once signed in, use the main menu:
   3) Backup Obsidian Vault to Proton Drive
   4) Restore Obsidian Vault from Proton Drive
+  5) Backup Contacts to Proton Drive
 
 The vault path is set near the top of this script (OBSIDIAN_VAULT_DIR),
-currently: $OBSIDIAN_VAULT_DIR"; then
+currently: $OBSIDIAN_VAULT_DIR
+
+Contacts back up from the local Radicale collection (CONTACTS_BACKUP_DIR),
+currently: $CONTACTS_BACKUP_DIR
+- requires your user to be in the 'radicale' group to read it without sudo."; then
 
     print_header "Step 13: Installing Proton Drive CLI"
 
-    yay -S --noconfirm proton-drive-cli-bin
+    yay -S --noconfirm --needed proton-drive-cli-bin
 
     print_success "Proton Drive CLI installed"
     print_info "Sign in with: proton-drive auth login"
@@ -1962,6 +2085,107 @@ These commands are safe to run again later (ufw skips duplicate rules)."; then
 fi
 
 ################################################################################
+# STEP 15: Setup Self-Hosted Contact Sync (Radicale + Tailscale)
+################################################################################
+
+if ask_continue "Setup Self-Hosted Contact Sync (Radicale + Tailscale)" \
+"Sets up the CardDAV stack that KAddressBook and DAVx5 (Android) sync
+contacts through instead of Google Contacts:
+  - Radicale: stores contacts as plain vCards - the source of truth
+  - Tailscale: lets your phone reach Radicale from anywhere without
+    exposing anything to the public internet
+
+Radicale can go HERE on this laptop, or on a REMOTE host over SSH (e.g. a
+future NAS/homelab box) - you'll be asked which. The remote path assumes
+that host is also Arch-based with pacman and sudo access over SSH, same as
+this script assumes for itself; if a future NAS runs something else
+entirely, this step won't apply there and the Radicale data would need
+migrating manually instead.
+
+Tailscale always goes on THIS machine regardless of your choice, since it
+stays a CardDAV client either way. If you pick remote, Tailscale is also
+installed on that target so it's actually reachable.
+
+Still can't be scripted, either way - you'll need to do these yourself
+afterward:
+  - 'tailscale up' (browser login) on every machine that just got Tailscale
+  - Adding a DAV Groupware address book in KAddressBook (GUI wizard)
+  - Creating the address book collection via Radicale's web interface
+  - Installing/configuring DAVx5 on your phone"; then
+
+    print_header "Step 15: Self-Hosted Contact Sync"
+
+    CONTACT_SYNC_TARGET=""
+    echo ""
+    read -p "Install Radicale on this machine, or a remote host over SSH? [local/remote] " target_choice
+    case "$target_choice" in
+        [Rr]emote*)
+            read -p "Remote SSH target (user@host): " CONTACT_SYNC_TARGET
+            print_info "Checking SSH connectivity to $CONTACT_SYNC_TARGET..."
+            if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$CONTACT_SYNC_TARGET" true 2>/dev/null; then
+                print_warning "No passwordless SSH access (no key set up, or host unreachable)."
+                read -p "Continue anyway? Each remote command below will prompt for a password. [y/N] " ssh_retry
+                case $ssh_retry in
+                    [Yy]*) ;;
+                    *) print_warning "Skipping self-hosted contact sync setup"; CONTACT_SYNC_TARGET="__skip__" ;;
+                esac
+            fi
+            ;;
+        *)
+            print_info "Installing locally"
+            ;;
+    esac
+
+    if [ "$CONTACT_SYNC_TARGET" = "__skip__" ]; then
+        : # user backed out after the SSH check above - nothing to do
+    else
+        target_label="this machine"
+        [ -n "$CONTACT_SYNC_TARGET" ] && target_label="$CONTACT_SYNC_TARGET"
+
+        print_info "Installing radicale on $target_label..."
+        run_on_contact_sync_target "sudo pacman -S --noconfirm --needed radicale"
+
+        if [ -z "$CONTACT_SYNC_TARGET" ]; then
+            sudo install -Dm644 "$SCRIPT_DIR/configs/radicale/config" /etc/radicale/config
+        else
+            scp "$SCRIPT_DIR/configs/radicale/config" "$CONTACT_SYNC_TARGET:/tmp/radicale-config"
+            ssh -t "$CONTACT_SYNC_TARGET" "sudo install -Dm644 /tmp/radicale-config /etc/radicale/config && rm -f /tmp/radicale-config"
+        fi
+
+        echo ""
+        print_info "Set a password for Radicale's '$USER' user (used by KAddressBook/DAVx5 to log in):"
+        run_on_contact_sync_target "python3 -c \"from passlib.hash import bcrypt; from getpass import getpass; print('$USER:' + bcrypt.hash(getpass()))\" | sudo tee /etc/radicale/users >/dev/null"
+
+        run_on_contact_sync_target "sudo systemctl enable --now radicale.service"
+
+        if [ -z "$CONTACT_SYNC_TARGET" ]; then
+            sudo usermod -aG radicale "$USER"
+            print_success "Added $USER to the radicale group locally - log out/in for it to take effect"
+            print_info "(needed so the Contacts Proton Drive backup can read Radicale's storage without sudo)"
+        else
+            print_warning "Radicale is remote - CONTACTS_BACKUP_DIR near the top of this script still points"
+            print_warning "at the local path. Update it (and how it's read) once the remote setup is final."
+        fi
+
+        print_info "Installing Tailscale locally..."
+        sudo pacman -S --noconfirm --needed tailscale
+        sudo systemctl enable --now tailscaled
+
+        if [ -n "$CONTACT_SYNC_TARGET" ]; then
+            print_info "Installing Tailscale on $CONTACT_SYNC_TARGET too, so it's reachable..."
+            run_on_contact_sync_target "sudo pacman -S --noconfirm --needed tailscale && sudo systemctl enable --now tailscaled"
+        fi
+
+        print_success "Radicale + Tailscale installed"
+        print_warning "Still needed from you:"
+        echo "  - Run 'tailscale up' on this machine$([ -n "$CONTACT_SYNC_TARGET" ] && echo " and on $CONTACT_SYNC_TARGET") (browser login)"
+        echo "  - Add a DAV Groupware address book in KAddressBook pointed at the Tailscale URL"
+        echo "  - Create the address book collection via Radicale's web interface (http://<host>:5232/)"
+        echo "  - Install/configure DAVx5 on your phone"
+    fi
+fi
+
+################################################################################
 # FINAL SUMMARY
 ################################################################################
 
@@ -1990,6 +2214,7 @@ echo "  ✓ NVIDIA power management services enabled"
 echo "  ✓ Custom configurations deployed"
 echo "  ✓ Proton Drive CLI installed (sign in with: proton-drive auth login)"
 echo "  ✓ Firewall ports opened for KDE Connect (1714-1764 TCP/UDP)"
+echo "  ✓ Radicale + Tailscale installed (contact sync) - manual follow-up steps still needed, see above"
 echo ""
 
 # Register post-reboot script to run on first login
@@ -2004,7 +2229,7 @@ cat > "$AUTOSTART_DIR/cachyos-post-reboot.desktop" << EOF
 [Desktop Entry]
 Type=Application
 Name=CachyOS Post-Reboot Setup
-Exec=wezterm start -- $SCRIPT_DIR/post-reboot.sh
+Exec=wezterm start -- "$SCRIPT_DIR/post-reboot.sh"
 Terminal=false
 X-KDE-autostart-after=panel
 EOF

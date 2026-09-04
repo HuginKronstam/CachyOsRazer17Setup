@@ -1427,3 +1427,54 @@
 2026-09-01 14:25:53 Success.
 2026-09-01 14:25:53 Latest version is 1.13.7
 2026-09-01 14:25:53 App is up to date.
+2026-09-01 15:25:55 Checking for update using Github
+2026-09-01 15:25:55 Success.
+2026-09-01 15:25:55 Latest version is 1.13.7
+2026-09-01 15:25:55 App is up to date.
+2026-09-01 17:08:01 Checking for update using Github
+2026-09-01 17:08:01 Success.
+2026-09-01 17:08:01 Latest version is 1.13.7
+2026-09-01 17:08:01 App is up to date.
+2026-09-01 18:18:22 Checking for update using Github
+2026-09-01 18:18:22 Success.
+2026-09-01 18:18:22 Latest version is 1.13.7
+2026-09-01 18:18:22 App is up to date.
+2026-09-02 15:53:11 Loaded main app package /usr/lib/obsidian/obsidian.asar
+2026-09-02 15:53:11 Checking for update using Github
+2026-09-02 15:53:11 Success.
+2026-09-02 15:53:11 Latest version is 1.13.7
+2026-09-02 15:53:11 App is up to date.
+2026-09-02 16:53:11 Checking for update using Github
+2026-09-02 16:53:11 Success.
+2026-09-02 16:53:11 Latest version is 1.13.7
+2026-09-02 16:53:11 App is up to date.
+2026-09-02 17:53:11 Checking for update using Github
+2026-09-02 17:53:11 Success.
+2026-09-02 17:53:11 Latest version is 1.13.7
+2026-09-02 17:53:11 App is up to date.
+2026-09-02 18:53:11 Checking for update using Github
+2026-09-02 18:53:11 Success.
+2026-09-02 18:53:11 Latest version is 1.13.7
+2026-09-02 18:53:11 App is up to date.
+2026-09-03 07:09:08 Loaded main app package /usr/lib/obsidian/obsidian.asar
+2026-09-03 07:09:08 Checking for update using Github
+2026-09-03 07:09:08 Success.
+2026-09-03 07:09:08 Latest version is 1.13.7
+2026-09-03 07:09:08 App is up to date.
+2026-09-03 07:30:12 Loaded main app package /usr/lib/obsidian/obsidian.asar
+2026-09-03 07:30:13 Checking for update using Github
+2026-09-03 07:30:13 Success.
+2026-09-03 07:30:13 Latest version is 1.13.7
+2026-09-03 07:30:13 App is up to date.
+2026-09-04 07:38:57 Checking for update using Github
+2026-09-04 07:38:57 Failed to check for update using Github (net::ERR_NAME_NOT_RESOLVED)
+2026-09-04 07:38:57 Checking for update using obsidian.md
+2026-09-04 07:38:57 Failed to check for update using obsidian.md (net::ERR_NAME_NOT_RESOLVED)
+2026-09-04 08:38:59 Checking for update using Github
+2026-09-04 08:38:59 Success.
+2026-09-04 08:38:59 Latest version is 1.13.7
+2026-09-04 08:38:59 App is up to date.
+2026-09-04 09:51:32 Checking for update using Github
+2026-09-04 09:51:32 Success.
+2026-09-04 09:51:32 Latest version is 1.13.7
+2026-09-04 09:51:32 App is up to date.

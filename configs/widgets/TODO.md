@@ -31,10 +31,5 @@
 ## Other
 
 - The two bugs found and root-caused in the old `plasma-applet-window-buttons`
-  (org.kde.windowbuttons) package - a fatal `Item`-vs-`Kirigami.Page`
-  `FINAL title` crash in its config UI, and a still-unexplained rendering
-  bug in its decoration/color picker dropdowns (reproduced independent of
-  theme, independent of custom vs. default ComboBox delegate) - were never
-  filed upstream. Low priority since we've moved off that package
-  entirely, but filing would help other CachyOS/Plasma users who hit the
-  same thing.
+  (org.kde.windowbuttons) package are tracked for filing in `UPSTREAM-BUGS.md`
+  at the repo root, not duplicated here.
